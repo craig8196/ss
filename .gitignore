@@ -1,7 +1,14 @@
+# Code coverage
+out/
+*.gcda
+*.gcno
+*.info
+
 # Prerequisites
 *.d
 
 # Object files
+obj/
 *.o
 *.ko
 *.obj
