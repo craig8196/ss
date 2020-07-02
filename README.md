@@ -5,7 +5,7 @@ Sometimes you just need a string. Whether binary, c-string, or UTF8.
 
 
 ## Tested
-I believe I've tested enough of the code that it is stable (98.8% code coverage).
+I believe I've tested enough of the code that it is stable (98.9% code coverage).
 Run tests with:
 
         make test

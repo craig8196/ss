@@ -167,7 +167,6 @@ _ss_realloc(_sstring_t *m, size_t cap)
 const char *
 _ss_memrchar(const char *buf, char find, size_t searchlen)
 {
-    // TODO optimization opportunity
     const char *end = buf + searchlen;
     while (buf <= end)
     {
@@ -492,12 +491,7 @@ ssc_setlen(SS s)
     size_t len = strlen(s);
     _sstring_t *m = _ss_meta(s);
 
-    if (len > m->cap)
-    {
-        len = m->cap;
-    }
-
-    if (len)
+    if (len <= m->cap)
     {
         m->len = len;
         s[len] = 0;
@@ -527,17 +521,7 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
     }
     else
     {
-        switch (opt)
-        {
-            case SS_GROW0:
-            case SS_GROW25:
-            case SS_GROW50:
-            case SS_GROW100:
-                *s = _ss_string(((_sstring_t *)&g_ss_empty[opt]));
-                break;
-            default:
-                break;
-        }
+        *s = _ss_string(((_sstring_t *)&g_ss_empty[opt]));
     }
 }
 
@@ -792,7 +776,6 @@ ss_removerange(SS s, size_t start, size_t end)
 void
 ss_reverse(SS s)
 {
-    // TODO optimization opportunity
     _sstring_t *m = _ss_meta(s);
 
     if (m->len)

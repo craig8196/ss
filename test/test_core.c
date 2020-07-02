@@ -1193,6 +1193,15 @@ test_trim(void)
         assert_eq(s, ans, alen);
         ss_free(&s);
     }
+
+    {
+        /* Test empty.
+         */
+        SS s = ss_empty();
+        ssc_trim(s, "asdf");
+        assert_empty(s);
+        ss_free(&s);
+    }
 }
 
 /**
@@ -1229,6 +1238,16 @@ test_upper_lower(void)
         SS s = ss_newfrom(0, buf, len);
         ssc_lower(s);
         assert_eq(s, ans, alen);
+        ss_free(&s);
+    }
+
+    {
+        /* Test empty.
+         */
+        SS s = ss_empty();
+        ssc_upper(s);
+        ssc_lower(s);
+        assert_empty(s);
         ss_free(&s);
     }
 }
