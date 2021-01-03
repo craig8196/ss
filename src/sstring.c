@@ -1711,7 +1711,7 @@ ss_copyf(SS *s, const char *fmt, ...)
         {
             /*
              * In pre glibc v2.1 libraries,
-             * -1 indicates not all bytes where written.
+             * -1 indicates not all bytes were written.
              * @see https://linux.die.net/man/3/vsnprintf
              */
 #ifdef __GNU_LIBRARY__
@@ -1777,7 +1777,7 @@ ss_catf(SS *s, const char *fmt, ...)
         {
             /*
              * In pre glibc v2.1 libraries,
-             * -1 indicates not all bytes where written.
+             * -1 indicates not all bytes were written.
              * @see https://linux.die.net/man/3/vsnprintf
              */
 #ifdef __GNU_LIBRARY__
