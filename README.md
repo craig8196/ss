@@ -1,11 +1,11 @@
 
 # Simple String
-Simple string in C. Buffer is ideal for cstrings, UTF8, or binary.
-Sometimes you just need a string. Whether binary, c-string, or UTF8.
+Simple string in C. Buffer is ideal for c-strings (null sentinel), UTF8, or binary.
+Sometimes you just need a string. Whether c-string, UTF8, or binary.
 
 
 ## Tested
-I believe I've tested enough of the code that it is stable (98.9% code coverage).
+I believe I've tested enough of the code that it is stable (~99% line coverage).
 Run tests with:
 
         make test
@@ -26,17 +26,27 @@ I believe that to write a good library the following must be done in order:
 
 So...
 1. Effective, convenient, and reasonably efficient string handling.
-1. See common operations in `sstring.h`.
+1. See operations in `sstring.h`.
 1. See code in `src/`.
 1. See tests in `test/`.
 1. See remaining comments or contribute.
 1. Ok.
 
 
+## Warning
+I designed this for x86 arch.
+Some architectures require pointer adresses to be sizeof pointer aligned.
+So test for any other architecture.
+
+
 ## Design
 The string length and other metadata are stored behind the string pointer (like malloc does).
 This allows you to use c-string functions and easy indexing.
 Each string automatically inserts and maintains a null character/sentinel at the end.
+
+Additionally, there are constant cost empty strings, get rid of those NULL pointers.
+This is acheived by checking length and allocating on modification functions.
+So we can use a global reference for a static empty string.
 
 
 ## Basic Examples
@@ -47,9 +57,9 @@ Each string automatically inserts and maintains a null character/sentinel at the
 1. Create a string:
 
         SS s = ss_new(0); /* Exact fit allocated string. */
-        SS s2 = ss_new_from(30, "hello", 5); /* Allocated with extra space. */
+        SS s2 = ss_newfrom(30, "hello", 5); /* Allocated with extra space. */
         SS s3 = ss_empty(): /* Non-allocated empty string. */
-        ss_new_stack(s4, 32); /* Stack allocated, switches to heap if too long. */
+        ss_stack(s4, 32); /* Stack allocated, switches to heap if too long. */
         /* Always free your string. */
         ss_free(&s);
         ss_free(&s2);
@@ -58,7 +68,7 @@ Each string automatically inserts and maintains a null character/sentinel at the
 
 1. Move string to heap:
 
-        ss_new_stack(s, 10);
+        ss_stack(s, 10);
         /* Do something. */
         ss_heapify(&s);
         /* Now string is definitely on the heap. */
@@ -72,7 +82,6 @@ Each string automatically inserts and maintains a null character/sentinel at the
 1. Get string length in O(1) time:
 
         size_t len = ss_len(s);
-
 
 1. Copy into a string:
 
