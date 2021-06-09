@@ -79,18 +79,16 @@ _ss_string(_sstring_t *m)
     return (SS)(m + 1);
 }
 
-INLINE static size_t *
-_ss_len(SS s)
+INLINE static size_t
+_ss_len(const SS s)
 {
-    _sstring_t *m = (_sstring_t *)s;
-    return &((m - 1)->len);
+    return _ss_cmeta(s)->len;
 }
 
-INLINE static uint32_t *
+INLINE static uint32_t
 _ss_type(SS s)
 {
-    _sstring_t *m = (_sstring_t *)s;
-    return &(m - 1)->type;
+    return _ss_meta(s)->type;
 }
 
 INLINE static bool
@@ -234,10 +232,10 @@ ss_dup(SS s)
 }
 
 void
-ss_free(SS *s)
+ss_free(SS *s) 
 {
     /* Empty string and stack string will not have flag set. */
-    if ((*_ss_type(*s)) & SS_HEAP_ALLOCATED)
+    if ((_ss_type(*s)) & SS_HEAP_ALLOCATED)
     {
         ss_rawfree(_ss_meta(*s));
     }
@@ -247,7 +245,7 @@ ss_free(SS *s)
 size_t
 ss_len(const SS s)
 {
-    return _ss_cmeta(s)->len;
+    return _ss_len(s);
 }
 
 size_t
@@ -259,7 +257,7 @@ ss_cap(const SS s)
 bool
 ss_isempty(const SS s)
 {
-    return !(_ss_cmeta(s)->len);
+    return !(_ss_len(s));
 }
 
 bool
@@ -271,7 +269,7 @@ ss_isemptytype(const SS s)
 bool
 ss_isheaptype(const SS s)
 {
-    return ((*_ss_type(s)) & SS_HEAP_ALLOCATED);
+    return ((_ss_type(s)) & SS_HEAP_ALLOCATED);
 }
 
 bool
@@ -511,8 +509,8 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
             case SS_GROW50:
             case SS_GROW100:
                 {
-                    uint32_t *t = _ss_type(*s);
-                    *t = (opt << SS_GROW_SHIFT) | ((*t) & ~SS_GROW_MASK);
+                    uint32_t t = _ss_type(*s);
+                    _ss_meta(*s)->type = (opt << SS_GROW_SHIFT) | ((t) & ~SS_GROW_MASK);
                 }
                 break;
             default:
@@ -528,7 +526,7 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
 int
 ss_heapify(SS *s)
 {
-    if (!(*_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (!(_ss_type(*s) & SS_HEAP_ALLOCATED))
     {
         const _sstring_t *m = _ss_cmeta(*s);
         _sstring_t *m2 = ss_rawalloc(sizeof(_sstring_t) + m->len + 1);
@@ -587,7 +585,7 @@ ss_fit(SS *s)
     /* We don't want to fit empty.
      * We don't want to fit stack allocated.
      */
-    if (m->cap != m->len && (*_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (m->cap != m->len && (_ss_type(*s) & SS_HEAP_ALLOCATED))
     {
         uint32_t before = m->type;
         m->type = m->type & SS_TYPE_MASK;
@@ -612,7 +610,7 @@ ss_resize(SS *s, size_t res)
     _sstring_t *m = _ss_meta(*s);
 
     /* If stack allocated and has capacity, just return. */
-    if (!(*_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (!(_ss_type(*s) & SS_HEAP_ALLOCATED))
     {
         if (m->cap >= res)
         {
@@ -670,7 +668,7 @@ ss_clear(SS s)
 {
     if (!_ss_is_type(s, _SSTRING_EMPTY))
     {
-        *_ss_len(s) = 0;
+        _ss_meta(s)->len = 0;
         s[0] = 0;
     }
 }
@@ -1739,7 +1737,7 @@ ss_copyf(SS *s, const char *fmt, ...)
         m = _ss_realloc(m, m->cap + 1);
         if (!m)
         {
-            *_ss_len(*s) = 0;
+            _ss_meta(*s)->len = 0;
             (*s)[0] = 0;
             return ENOMEM;
         }
@@ -2010,7 +2008,7 @@ ssc_esc(SS *s)
         ++p;
     }
 
-    int code = ss_copy(s, t, *_ss_len(t));
+    int code = ss_copy(s, t, _ss_len(t));
 
     ss_free(&t);
 
