@@ -57,3 +57,10 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Build files
+build/
+
+# Temporary ignore files
+*.ignore
+
