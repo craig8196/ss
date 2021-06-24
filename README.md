@@ -4,15 +4,44 @@ Simple string in C. Buffer is ideal for c-strings (null sentinel), UTF8, or bina
 Sometimes you just need a string. Whether c-string, UTF8, or binary.
 
 
-## Tested
-I believe I've tested enough of the code that it is stable (~99% line coverage).
+## Build
+For those unfamiliar with cmake:
+
+        rmdir build && cd build
+        cmake ..
+        cmake --build .
+
+For code coverage:
+
+        cmake -DCODE_COVERAGE=ON ..
+        cmake --build .
+
+For installation:
+
+        cd build
+        sudo cmake --install .
+        sudo ldconfig
+
+Cleanup:
+
+        rm -rf build
+
+
+## Testing
+I believe I've tested enough of the code that it is stable (~95% line coverage).
+Build tests like you build the project.
 Run tests with:
 
-        make test
+        ctest -VV
 
-Run code coverage report with:
+Run code coverage:
 
-        make test prof=coverage
+        make ccov-prove
+
+
+## Acknowledgements
+Thanks to the author of bdd-for-c.
+I have a slightly modified version in `test/`.
 
 
 ## Design Philosophy
@@ -26,7 +55,7 @@ I believe that to write a good library the following must be done in order:
 
 So...
 1. Effective, convenient, and reasonably efficient string handling.
-1. See operations in `sstring.h`.
+1. See operations in `ss.h`.
 1. See code in `src/`.
 1. See tests in `test/`.
 1. See remaining comments or contribute.
@@ -35,7 +64,7 @@ So...
 
 ## Warning
 I designed this for x86 arch.
-Some architectures require pointer adresses to be sizeof pointer aligned.
+Some architectures require pointer adresses to be sizeof(pointer) aligned.
 So test for any other architecture.
 
 
@@ -47,6 +76,12 @@ Each string automatically inserts and maintains a null character/sentinel at the
 Additionally, there are constant cost empty strings, get rid of those NULL pointers.
 This is acheived by checking length and allocating on modification functions.
 So we can use a global reference for a static empty string.
+
+Finally, I decided to omit returning error values for ENOMEM conditions.
+Mostly because code littered with checks becomes ugly and hard to read.
+There are times to check memory and times to not.
+Really, just try to avoid allocations altogether and focus on freeing memory
+when possible.
 
 
 ## Basic Examples
@@ -60,6 +95,9 @@ So we can use a global reference for a static empty string.
         SS s2 = ss_newfrom(30, "hello", 5); /* Allocated with extra space. */
         SS s3 = ss_empty(): /* Non-allocated empty string. */
         ss_stack(s4, 32); /* Stack allocated, switches to heap if too long. */
+
+        /* Do string operations here. */
+
         /* Always free your string. */
         ss_free(&s);
         ss_free(&s2);
@@ -77,7 +115,7 @@ So we can use a global reference for a static empty string.
 1. Make string grow faster for fewer reallocations:
 
         s = ss_empty();
-        ss_set_growth(SS_GROW_OPT_100); /* Double reallocation length. */
+        ss_setgrow(&s, SS_GROW100); /* Double reallocation length. */
 
 1. Get string length in O(1) time:
 
@@ -85,10 +123,7 @@ So we can use a global reference for a static empty string.
 
 1. Copy into a string:
 
-        if (ss_copy(&s, "to copy", 7))
-        {
-            return ENOMEM;
-        }
+        ss_copy(&s, "to copy", 7);
 
 1. Empty string:
 
@@ -100,6 +135,7 @@ So we can use a global reference for a static empty string.
 1. Fun formatting functions:
 
         s = ss_empty();
+        /* GCC systems will give you a compilation warning for bad formats. */
         ss_copyf(&s, %d: ", 123);
         ss_catf(&s, "%s\n", "hello");
         /* s = "123: hello\n" */
@@ -129,7 +165,7 @@ Store the string pointer in a struct or pass by reference.
             return 1;
         }
 
-1. Better example, you can do this:
+1. Better example, do this:
 
         void
         function do_something(SS *s)
@@ -146,4 +182,11 @@ Store the string pointer in a struct or pass by reference.
             return 0;
         }
 
+
+## TODO
+- Better tests and coverage reports
+- Add a method of downloading cmake scripts for ccov and doxygen
+- Add documentation
+- Add doxygen generation
+- Add static library generation to build setup.
 

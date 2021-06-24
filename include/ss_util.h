@@ -33,11 +33,9 @@ extern "C" {
 
 #include <string.h>
 
-
-#define ss_rawalloc malloc
-#define ss_rawrealloc realloc
-#define ss_rawfree free
-
+#define ss_rawalloc _ss_rawalloc_impl
+#define ss_rawrealloc _ss_rawrealloc_impl
+#define ss_rawfree _ss_rawfree_impl
 
 #define ss_cstrlen strlen
 #define ss_cstrchar strchr
@@ -53,6 +51,8 @@ extern "C" {
 /* Maximum growth rate ~1MB (2**20). */
 #define SS_MAX_REALLOC (0x100000)
 
+/* Uncomment if you prefer functions to return error values on ENOMEM. */
+// #define SS_MEMCHECK
 
 #ifdef __cplusplus
 }

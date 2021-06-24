@@ -30,8 +30,8 @@
  * ssu_ is for unicode operations, UTF8 is the unicode encoding used.
  * sse_ is for exporting internal functions primarily for testing.
  */
-#ifndef SSTRING_H_
-#define SSTRING_H_
+#ifndef SS_H_
+#define SS_H_
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -124,17 +124,17 @@ ssc_setlen(SS);
 /* Modify Meta */
 void
 ss_setgrow(SS *, enum ss_grow_opt);
-int
+void
 ss_heapify(SS *);
 void
 ss_swap(SS *, SS *);
-int
+void
 ss_reserve(SS *, size_t);
-int
+void
 ss_fit(SS *);
-int
+void
 ss_resize(SS *, size_t);
-int
+void
 ss_addcap(SS *, size_t);
 
 
@@ -164,19 +164,19 @@ void
 ssc_unesc(SS);
 
 /* Modify */
-int
+void
 ss_copy(SS *, const char *, size_t);
-int
+void
 ss_cat(SS *, const char *, size_t);
-int
+void
 ss_lcat(SS *, const char *, size_t);
-int
+void
 ss_replace(SS *, size_t, const char *, size_t, const char *, size_t);
-int
+void
 ss_replacerange(SS *, size_t, size_t, const char *, size_t);
-int
+void
 ss_insert(SS *, size_t, const char *, size_t);
-int
+void
 ss_overlay(SS *, size_t, const char *, size_t);
 #ifdef __GNU_LIBRARY__
 int
@@ -191,16 +191,16 @@ ss_copyf(SS *, const char *fmt, ...);
 int
 ss_catf(SS *, const char *fmt, ...);
 #endif
-int
+void
 ss_catint64(SS *, int64_t);
-int
+void
 ss_catuint64(SS *, uint64_t);
 
-int
+void
 ssc_esc(SS *);
 
 /* Unicode UTF-8 */
-#define SS_UTF8_SEQ_MAX (8)
+#define SS_UTF8_SEQ_MAX (5)
 typedef uint32_t unicode_t;
 
 bool
@@ -223,5 +223,5 @@ sse_memrchar(const char *, char, size_t);
 #ifdef __cplusplus
 }
 #endif
-#endif /* SSTRING_H_ */
+#endif /* SS_H_ */
 

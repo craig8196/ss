@@ -1,10 +1,11 @@
 
-#include "sstring.h"
-#include "sstring_util.h"
+#include "ss.h"
+#include "ss_util.h"
 
 #include <ctype.h>
 #include <errno.h>
 #include <features.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,11 +26,66 @@
 #define NOINLINE
 #endif
 
+#ifdef SS_MEMCHECK
+#define _SS_MEMRETVAL int
+#define _SS_MEMRETZERO return 0
+#else
+#define _SS_MEMRETVAL void
+#define _SS_MEMRETZERO return
+#endif
+
 #define SS_GROW_MAX (4)
 #define SS_GROW_SHIFT (16)
 #define SS_TYPE_MASK (0x0000FFFF)
 #define SS_GROW_MASK (0xFFFF0000)
 #define SS_HEAP_ALLOCATED (0x00000100)
+
+static void
+_ss_abort(bool is_malloc, size_t size)
+{
+    const char msg[] = "libss %s(%zu) failure";
+    const char m[] = "malloc";
+    const char r[] = "realloc";
+
+    /* Note that 2**64 is actually 20 max chars, good to have space. */
+    char buf[sizeof(msg) + sizeof(r) + 32];
+
+    snprintf(buf, sizeof(buf), msg, is_malloc ? m : r, size);
+    perror(buf);
+    abort();
+}
+
+INLINE static void *
+_ss_rawalloc_impl(size_t size)
+{
+    void *mem = malloc(size);
+    if (UNLIKELY(!mem))
+    {
+        _ss_abort(true, size);
+    }
+    return mem;
+}
+
+INLINE static void *
+_ss_rawrealloc_impl(void *oldmem, size_t size)
+{
+    void *mem = realloc(oldmem, size);
+    if (UNLIKELY(!mem))
+    {
+        _ss_abort(false, size);
+    }
+    return mem;
+}
+
+/**
+ * Don't check for NULL since ss_free does operations
+ * that would cause segfault anyways.
+ */
+INLINE static void
+_ss_rawfree_impl(void *mem)
+{
+    free(mem);
+}
 
 enum _sstring_type
 {
@@ -97,6 +153,18 @@ _ss_is_type(SS s, enum _sstring_type t)
     return (_ss_meta(s)->type & SS_TYPE_MASK) == (uint32_t)t;
 }
 
+INLINE static size_t
+_ss_cap_max(void)
+{
+    return ((size_t)INT_MAX) - 2 - sizeof(_sstring_t);
+}
+
+INLINE static bool
+_ss_valid_cap(size_t cap)
+{
+    return !!(cap <= _ss_cap_max());
+}
+
 INLINE static _sstring_t *
 _ss_realloc(_sstring_t *m, size_t cap)
 {
@@ -127,9 +195,9 @@ _ss_realloc(_sstring_t *m, size_t cap)
             growcap = SS_MAX_REALLOC;
         }
 
-        if ((growcap + cap) < cap || (growcap + cap) >= NPOS)
+        if ((growcap + cap) < cap || !_ss_valid_cap(growcap + cap))
         {
-            cap = NPOS - 1;
+            cap = _ss_cap_max();
         }
         else
         {
@@ -187,6 +255,16 @@ ss_empty(void)
 SS
 ss_new(size_t cap)
 {
+    if (!cap || NPOS == cap)
+    {
+        return ss_empty();
+    }
+
+    if (!_ss_valid_cap(cap))
+    {
+        cap = _ss_cap_max();
+    }
+
     _sstring_t *m = ss_rawalloc(sizeof(_sstring_t) + cap + 1);
     SS s = NULL;
 
@@ -486,8 +564,15 @@ ss_setlen(SS s, size_t len)
 void
 ssc_setlen(SS s)
 {
-    size_t len = strlen(s);
     _sstring_t *m = _ss_meta(s);
+
+    if (m->cap)
+    {
+        /* Don't modify empty string. */
+        s[m->cap] = 0;
+    }
+
+    size_t len = strlen(s);
 
     if (len <= m->cap)
     {
@@ -523,17 +608,19 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
     }
 }
 
-int
+_SS_MEMRETVAL
 ss_heapify(SS *s)
 {
     if (!(_ss_type(*s) & SS_HEAP_ALLOCATED))
     {
         const _sstring_t *m = _ss_cmeta(*s);
         _sstring_t *m2 = ss_rawalloc(sizeof(_sstring_t) + m->len + 1);
+#ifdef SS_MEMCHECK
         if (!m2)
         {
             return ENOMEM;
         }
+#endif
 
         SS s2 = _ss_string(m2);
         ss_memcopy(s2, *s, m->len + 1);
@@ -546,7 +633,9 @@ ss_heapify(SS *s)
         *s = s2;
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
 void
@@ -557,7 +646,7 @@ ss_swap(SS *s1, SS *s2)
     *s2 = tmp;
 }
 
-int
+_SS_MEMRETVAL
 ss_reserve(SS *s, size_t res)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -566,18 +655,22 @@ ss_reserve(SS *s, size_t res)
     if (m->cap < res)
     {
         m = _ss_realloc(m, res);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_fit(SS *s)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -590,21 +683,25 @@ ss_fit(SS *s)
         uint32_t before = m->type;
         m->type = m->type & SS_TYPE_MASK;
         m = _ss_realloc(m, m->len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             m = _ss_meta(*s);
             m->type = before;
             return ENOMEM;
         }
+#endif
         m->type = before;
 
         *s = _ss_string(m);
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_resize(SS *s, size_t res)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -614,7 +711,11 @@ ss_resize(SS *s, size_t res)
     {
         if (m->cap >= res)
         {
+#ifdef SS_MEMCHECK
             return 0;
+#else
+            return;
+#endif
         }
     }
 
@@ -623,10 +724,12 @@ ss_resize(SS *s, size_t res)
         bool truncate = res < m->len;
 
         m = _ss_realloc(m, res);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
 
@@ -637,10 +740,12 @@ ss_resize(SS *s, size_t res)
         }
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_addcap(SS *s, size_t add)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -649,18 +754,26 @@ ss_addcap(SS *s, size_t add)
     size_t newcap = m->cap + add;
     if (newcap < m->cap)
     {
+#ifdef SS_MEMCHECK
         return EINVAL;
+#else
+        newcap = _ss_cap_max();
+#endif
     }
 
     m = _ss_realloc(m, newcap);
+#ifdef SS_MEMCHECK
     if (!m)
     {
         return ENOMEM;
     }
+#endif
 
     *s = _ss_string(m);
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
 void
@@ -993,6 +1106,10 @@ _ss_pop32(uint32_t n)
     return (((n + (n >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
 }
 
+/**
+ * Note that we don't use GCC clz impl
+ * because the result when n = 0 is undefined.
+ */
 INLINE static int
 _ss_clz32_impl(uint32_t n)
 {
@@ -1002,7 +1119,7 @@ _ss_clz32_impl(uint32_t n)
     n = n | (n >> 8);
     n = n | (n >>16);
 #if UINT_MAX == 4294967295U && defined __GNUC__
-    return __builtin_pop(~n);
+    return __builtin_popcount(~n);
 #else
     return _ss_pop32(~n);
 #endif
@@ -1035,16 +1152,6 @@ _ss_msb32_impl(uint32_t c)
     return map[(c * 0x07C4ACDD) >> 27] + 1;
 }
 
-INLINE static int
-_ss_clz32(uint32_t c)
-{
-#if UINT_MAX == 4294967295U && defined __GNUC__
-    return __builtin_clz(c);
-#else
-    return _ss_clz32_impl(c);
-#endif
-}
-
 /**
  * Find the number of bytes to encode the number of bits.
  * 
@@ -1074,7 +1181,10 @@ _ss_unicodetoutf8(unicode_t c, unsigned char *buf)
         *buf = c;
         return 1;
 #if 0
-        /* If we want to support technically invalid utf8 output. */
+        /* If we want to support technically invalid utf8 output.
+         * Only listed here as a form of documentation.
+         * Stuff like this does exist in the wild.
+         */
         if (c)
         {
             *buf = c;
@@ -1082,11 +1192,18 @@ _ss_unicodetoutf8(unicode_t c, unsigned char *buf)
         }
         else
         {
+            /* Basically, null is output as multibyte so it
+             * can be included in normal string processing stuff.
+             */
             buf[0] = 0xC0;
             buf[1] = 0x80;
             return 2;
         }
 #endif
+    }
+    else if (UNLIKELY(!ssu_isvalid(c)))
+    {
+        return 0;
     }
     else
     {
@@ -1335,7 +1452,7 @@ ssc_unesc(SS s)
     m->len = newlen;
 }
 
-int
+_SS_MEMRETVAL
 ss_copy(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1343,10 +1460,12 @@ ss_copy(SS *s, const char *cs, size_t len)
     if (len > m->cap)
     {
         m = _ss_realloc(m, len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1355,10 +1474,12 @@ ss_copy(SS *s, const char *cs, size_t len)
     m->len = len;
     (*s)[m->len] = 0;
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_cat(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1366,10 +1487,12 @@ ss_cat(SS *s, const char *cs, size_t len)
     if ((m->len + len) > m->cap)
     {
         m = _ss_realloc(m, m->len + len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1378,10 +1501,12 @@ ss_cat(SS *s, const char *cs, size_t len)
     m->len += len;
     (*s)[m->len] = 0;
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_lcat(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1389,10 +1514,12 @@ ss_lcat(SS *s, const char *cs, size_t len)
     if ((m->len + len) > m->cap)
     {
         m = _ss_realloc(m, m->len + len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1401,23 +1528,33 @@ ss_lcat(SS *s, const char *cs, size_t len)
     ss_memcopy(*s, cs, len);
     m->len += len;
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *with, size_t wlen)
 {
     if (!wlen)
     {
         ss_remove(*s, index, replace, rlen);
+#ifdef SS_MEMCHECK
         return 0;
+#else
+        return;
+#endif
     }
 
     _sstring_t *m = _ss_meta(*s);
 
     if (index >= m->len)
     {
+#ifdef SS_MEMCHECK
         return 0;
+#else
+        return;
+#endif
     }
 
     if (wlen <= rlen)
@@ -1496,10 +1633,12 @@ ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *wi
             if (cap > m->cap)
             {
                 m = _ss_realloc(m, cap);
+#ifdef SS_MEMCHECK
                 if (!m)
                 {
                     return ENOMEM;
                 }
+#endif
 
                 *s = _ss_string(m);
             }
@@ -1571,10 +1710,12 @@ ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *wi
         }
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1596,10 +1737,12 @@ ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
         if ((m->len + (len - rlen)) > m->cap)
         {
             m = _ss_realloc(m , m->len + (len - rlen));
+#ifdef SS_MEMCHECK
             if (!m)
             {
                 return ENOMEM;
             }
+#endif
 
             *s = _ss_string(m);
         }
@@ -1614,10 +1757,12 @@ ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
     ss_memcopy(*s + start, cs, len);
     m->len = (m->len - rlen) + len;
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_insert(SS *s, size_t index, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1630,10 +1775,12 @@ ss_insert(SS *s, size_t index, const char *cs, size_t len)
     if ((m->len + len) > m->cap)
     {
         m = _ss_realloc(m, m->len + len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1646,10 +1793,12 @@ ss_insert(SS *s, size_t index, const char *cs, size_t len)
     m->len += len;
     (*s)[m->len] = 0;
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_overlay(SS *s, size_t index, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1664,10 +1813,12 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
     if (overend > m->cap)
     {
         m = _ss_realloc(m, overend);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1679,7 +1830,9 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
         (*s)[overend] = 0;
     }
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
 int
@@ -1813,7 +1966,7 @@ ss_catf(SS *s, const char *fmt, ...)
     return 0;
 }
 
-int
+_SS_MEMRETVAL
 ss_catint64(SS *s, int64_t val)
 {
     char buf[32];
@@ -1855,10 +2008,12 @@ ss_catint64(SS *s, int64_t val)
     if ((m->len + len) > m->cap)
     {
         m = _ss_realloc(m, m->len + len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1873,10 +2028,12 @@ ss_catint64(SS *s, int64_t val)
         ++ss;
     } while (p != buf);
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
-int
+_SS_MEMRETVAL
 ss_catuint64(SS *s, uint64_t val)
 {
     char buf[32];
@@ -1902,10 +2059,12 @@ ss_catuint64(SS *s, uint64_t val)
     if ((m->len + len) > m->cap)
     {
         m = _ss_realloc(m, m->len + len);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1920,7 +2079,9 @@ ss_catuint64(SS *s, uint64_t val)
         ++ss;
     } while (p != buf);
 
+#ifdef SS_MEMCHECK
     return 0;
+#endif
 }
 
 INLINE static char
@@ -1936,21 +2097,27 @@ _ss_tohexchar(unsigned char nibble)
     return map[nibble];
 }
 
-int
+_SS_MEMRETVAL
 ssc_esc(SS *s)
 {
     _sstring_t *m = _ss_meta(*s);
 
     if (!m->len)
     {
+#ifdef SS_MEMCHECK
         return 0;
+#else
+        return;
+#endif
     }
 
     SS t = ss_new(m->len * 2);
+#ifdef SS_MEMCHECK
     if (!t)
     {
         return ENOMEM;
     }
+#endif
     ss_setgrow(&t, SS_GROW100);
 
     char *p = *s;
@@ -2008,11 +2175,17 @@ ssc_esc(SS *s)
         ++p;
     }
 
+#ifdef SS_MEMCHECK
     int code = ss_copy(s, t, _ss_len(t));
 
     ss_free(&t);
 
     return code;
+#else
+    ss_copy(s, t, _ss_len(t));
+    ss_free(&t);
+#endif
+
 }
 
 bool
@@ -2027,16 +2200,49 @@ ssu_isvalid(unicode_t c)
 int
 ssu8_cpseqlen(unicode_t c)
 {
-    return _ss_utf8len(c);
+    return ssu_isvalid(c) ? _ss_utf8len(c) : 0;
 }
 
+INLINE static int
+_ss_seqlen(const char *seq)
+{
+    /* There are only 21 bits used for the Unicode standard.
+     * This means only 4 bytes are needed, max.
+     * So everything above 111110xx are not needed.
+     */
+    unsigned char c = *((const unsigned char *)seq);
+    if (LIKELY(c < 0x80))
+    {
+        return 1;
+    }
+    if (UNLIKELY(c > 0xF7 || (c & 0xC0) == 0x80))
+    {
+        return 0;
+    }
+    else
+    {
+        /* We know that at least the leading bit is set.
+         * Flip bits in c.
+         */
+        uint32_t z = (uint32_t)0x000000FF ^ (uint32_t)c;
+        return _ss_clz32_impl(z) - 24;
+    }
+}
+
+/**
+ * @return Zero for invalid; number of bytes otherwise;
+ *         continuation bytes will return 0.
+ */
 int
 ssu8_seqlen(const char *seq)
 {
-    const unsigned char *s = (const unsigned char *)seq;
-    return (*s) < 128 ? 1 : _ss_clz32(0x000000FF ^ ((uint32_t)(*s))) - 24;
+    return _ss_seqlen(seq);
 }
 
+/**
+ * @warn This will encode invalid code points. Use ssu_isvalid to check.
+ * @return Sequence length, zero if invalid.
+ */
 int
 ssu8_cptoseq(unicode_t c, char *seq)
 {
@@ -2047,21 +2253,27 @@ int
 ssu8_seqtocp(const char *seq, unicode_t *cpout)
 {
     const unsigned char *s = (const unsigned char *)seq;
-    int z = (*s) < 128 ? 1 : _ss_clz32(0x000000FF ^ ((uint32_t)(*s))) - 24;
+
+    /* z should always be > 0. */
+    int z = _ss_seqlen(seq);
+
     unicode_t c;
     /* 0xxxxxxx
      * 10xxxxxx invalid
      * 110xxxxx
      * 1110xxxx
      * 11110xxx
-     * 111110xx
+     * 111110xx invalid
      * 1111110x invalid
      * 11111110 invalid
      */
     switch (z)
     {
+#if 0
+        /* Moved to default case for code coverage/catch-all. */
         case 0:
             return 0;
+#endif
         case 1:
             *cpout = *s;
             return 1;
@@ -2097,6 +2309,7 @@ ssu8_seqtocp(const char *seq, unicode_t *cpout)
                 | ((0x3F & s[3]));
             *cpout = c;
             return 4;
+#if 0
         case 5:
             if (UNLIKELY(((s[1] & 0xC0) != 0x80)
                          && ((s[2] & 0xC0) != 0x80)
@@ -2133,15 +2346,18 @@ ssu8_seqtocp(const char *seq, unicode_t *cpout)
             return 0;
         case 8:
             return 0;
+#endif
         default:
-            return 0;
+            break;
     }
+
+    return 0;
 }
 
 int
 sse_clz32(uint32_t n)
 {
-    return 32 - _ss_msb32_impl(n);
+    return _ss_clz32_impl(n);
 }
 
 const char *
