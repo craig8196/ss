@@ -61,6 +61,10 @@ dkms.conf
 # Build files
 build/
 
+# Tag files
+tags
+ctags
+
 # Temporary ignore files
 *.ignore
 
