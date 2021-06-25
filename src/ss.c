@@ -1529,6 +1529,11 @@ ss_lcat(SS *s, const char *cs, size_t len)
 _SS_MEMRETVAL
 ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *with, size_t wlen)
 {
+    if (!rlen)
+    {
+        return;
+    }
+
     if (!wlen)
     {
         ss_remove(*s, index, replace, rlen);
@@ -1837,10 +1842,12 @@ ss_copyf(SS *s, const char *fmt, ...)
     if (m->cap == 0)
     {
         m = _ss_realloc(m, ss_cstrlen(fmt) + 1);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1881,12 +1888,14 @@ ss_copyf(SS *s, const char *fmt, ...)
         }
 
         m = _ss_realloc(m, m->cap + 1);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             _ss_meta(*s)->len = 0;
             (*s)[0] = 0;
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1903,10 +1912,12 @@ ss_catf(SS *s, const char *fmt, ...)
     if (m->cap == 0)
     {
         m = _ss_realloc(m, ss_cstrlen(fmt) + 1);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }
@@ -1947,11 +1958,13 @@ ss_catf(SS *s, const char *fmt, ...)
         }
 
         m = _ss_realloc(m, m->cap + 1);
+#ifdef SS_MEMCHECK
         if (!m)
         {
             (*s)[ss_len(*s)] = 0;
             return ENOMEM;
         }
+#endif
 
         *s = _ss_string(m);
     }

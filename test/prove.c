@@ -579,7 +579,7 @@ spec("simple-string library")
         }
     }
 
-    describe("ss_esc")
+    describe("ssc_unesc")
     {
         it("should esc basic escape sequences correctly")
         {
@@ -669,6 +669,18 @@ spec("simple-string library")
             SS s = ss_newfrom(0, buf, len);
             ssc_unesc(s);
             check(eq(s, ans, alen));
+            ss_free(&s);
+        }
+    }
+
+    describe("ssc_esc")
+    {
+        it("should short-circuit if empty (code coverage)")
+        {
+            SS s = ss_empty();
+            SS save = s;
+            ssc_esc(&s);
+            check(save == s);
             ss_free(&s);
         }
 
@@ -870,6 +882,38 @@ spec("simple-string library")
             SS s = ss_newfrom(0, buf, blen);
             ss_replace(&s, 0, rep, rlen, wit, wlen);
             check(eq(s, ans, alen));
+            ss_free(&s);
+        }
+
+        it("should short-circuit if replace len is 0 (code coverage)")
+        {
+            SS s = ss_newfrom(0, "asdf", 4);
+            ss_replace(&s, 0, "", 0, "", 0);
+            check(eq(s, "asdf", 4));
+            ss_free(&s);
+        }
+
+        it("should short-circuit if index >= len (code coverage)")
+        {
+            SS s = ss_newfrom(0, "asdf", 4);
+            ss_replace(&s, 4, "asdf", 4, "fdsa", 4);
+            check(eq(s, "asdf", 4));
+            ss_free(&s);
+        }
+
+        it("should short-circuit if no chars are found (code coverage)")
+        {
+            SS s = ss_newfrom(0, "asdf", 4);
+            ss_replace(&s, 0, "zxcv", 4, "asdf", 4);
+            check(eq(s, "asdf", 4));
+            ss_free(&s);
+        }
+
+        it("should short-circuit if remaining length is too short (code coverage)")
+        {
+            SS s = ss_newfrom(0, "asdf", 4);
+            ss_replace(&s, 0, "sdfg", 4, "asdf", 4);
+            check(eq(s, "asdf", 4));
             ss_free(&s);
         }
     }
@@ -1650,7 +1694,7 @@ spec("simple-string library")
     {
         it("should return zero if input is zero")
         {
-            check(!sse_msb32(0));
+            check(0 == sse_msb32(0));
         }
 
         it("should find the most significant bit")
@@ -1661,7 +1705,10 @@ spec("simple-string library")
             for (i = 0; i < count; ++i)
             {
                 uint32_t try = n << i;
-                check((i + 1) == sse_msb32(try));
+                int ans = i + 1;
+                int res = sse_msb32(try);
+                check(ans == res);
+
             }
         }
     }

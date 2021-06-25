@@ -188,8 +188,6 @@ Store the string pointer in a struct or pass by reference.
 
 
 ## TODO
-- Better tests and coverage reports
-- Add a method of downloading cmake scripts for ccov and doxygen
 - Add documentation
 - Add doxygen generation
 - Add static library generation to build setup.
