@@ -989,6 +989,22 @@ spec("simple-string library")
 
     describe("ss_remove")
     {
+        it("should short-circuit when first char isn't found in string (code coverage)")
+        {
+            SS s = ss_newfrom(0, "gsdg", 4);
+            ss_remove(s, 0, "asdf", 4);
+            check(eq(s, "gsdg", 4));
+            ss_free(&s);
+        }
+
+        it("should short-circuit when remaining length is too small (code coverage)")
+        {
+            SS s = ss_newfrom(0, "gsag", 4);
+            ss_remove(s, 0, "asdf", 4);
+            check(eq(s, "gsag", 4));
+            ss_free(&s);
+        }
+
         it("should not recursively remove")
         {
             char buf[] = "abczzzzabcababcc";
@@ -1026,6 +1042,14 @@ spec("simple-string library")
 
     describe("ss_removerange")
     {
+        it("should short-circuit if start >= end (code coverage)")
+        {
+            SS s = ss_newfrom(0, "asdf", 4);
+            ss_removerange(s, 0, 0);
+            check(eq(s, "asdf", 4));
+            ss_free(&s);
+        }
+
         it("should remove from mid-string")
         {
             char buf[] = "abczzzzabcababcc";
@@ -1619,6 +1643,26 @@ spec("simple-string library")
                 n <<= 1;
                 --count;
             } while (n);
+        }
+    }
+
+    describe("sse_msb32")
+    {
+        it("should return zero if input is zero")
+        {
+            check(!sse_msb32(0));
+        }
+
+        it("should find the most significant bit")
+        {
+            uint32_t n = 1;
+            int count = 32;
+            int i;
+            for (i = 0; i < count; ++i)
+            {
+                uint32_t try = n << i;
+                check((i + 1) == sse_msb32(try));
+            }
         }
     }
 

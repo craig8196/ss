@@ -598,8 +598,6 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
                     _ss_meta(*s)->type = (opt << SS_GROW_SHIFT) | ((t) & ~SS_GROW_MASK);
                 }
                 break;
-            default:
-                break;
         }
     }
     else
@@ -791,12 +789,7 @@ ss_remove(SS s, size_t index, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(s);
 
-    if (index >= m->len)
-    {
-        return;
-    }
-
-    if (len && m->len && (m->len - index) >= len)
+    if (len && m->len && index < m->len && (m->len - index) >= len)
     {
         size_t newlen = m->len;
         size_t searchlen = m->len - index;
@@ -1138,7 +1131,7 @@ _ss_msb32_impl(uint32_t c)
         8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
     };
 
-    if (!c)
+    if (UNLIKELY(!c))
     {
         return 0;
     }
@@ -2358,6 +2351,12 @@ int
 sse_clz32(uint32_t n)
 {
     return _ss_clz32_impl(n);
+}
+
+int
+sse_msb32(uint32_t n)
+{
+    return _ss_msb32_impl(n);
 }
 
 const char *

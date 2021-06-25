@@ -217,6 +217,8 @@ ssu8_seqtocp(const char *, unicode_t *);
 /* Exports */
 int
 sse_clz32(uint32_t n);
+int
+sse_msb32(uint32_t n);
 const char *
 sse_memrchar(const char *, char, size_t);
 
