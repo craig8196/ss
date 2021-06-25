@@ -188,6 +188,7 @@ Store the string pointer in a struct or pass by reference.
 
 
 ## TODO
+- Getting weird implicit function declaration error (but I'm sure I've declared it...)
 - Add documentation
 - Add doxygen generation
 - Add static library generation to build setup.
