@@ -61,6 +61,9 @@ dkms.conf
 # Build files
 build/
 
+# Editor files
+*.swp
+
 # Tag files
 tags
 ctags

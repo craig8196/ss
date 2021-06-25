@@ -7,7 +7,7 @@ Sometimes you just need a string. Whether c-string, UTF8, or binary.
 ## Build
 For those unfamiliar with cmake:
 
-        rmdir build && cd build
+        mkdir build && cd build
         cmake ..
         cmake --build .
 
@@ -33,6 +33,10 @@ Build tests like you build the project.
 Run tests with:
 
         ctest -VV
+
+Download git submodules prior to code coverage or doxygen:
+
+        git submodule update --init
 
 Run code coverage:
 

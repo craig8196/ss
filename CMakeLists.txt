@@ -4,7 +4,7 @@ enable_testing()
 project(ss VERSION 0.0.1 DESCRIPTION "Simple string library.")
 
 include(GNUInstallDirs)
-include(code-coverage.cmake)
+include(cmake-scripts/code-coverage.cmake)
 
 add_subdirectory(test)
 
