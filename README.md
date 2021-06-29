@@ -26,6 +26,13 @@ Mostly because code littered with checks becomes ugly and hard to read.
 I kept some of the code from when errors were reported, some work is needed
 to make it so you can enable it from cmake.
 
+A static library isn't built because of some complications that arise
+with building both shared and static libraries.
+With static builds you could use git submodules and include the source and
+headers directly.
+
+The library is compiled with -fPIC.
+
 
 ## Basic Examples
 1. Include:
@@ -178,5 +185,5 @@ So test for any other architecture.
 
 
 ## TODO
-- Add static library generation to build setup.
+- Re-review interface. Simplify where possible.
 

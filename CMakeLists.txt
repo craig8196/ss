@@ -12,10 +12,13 @@ endif()
 
 add_subdirectory(test)
 
-add_library(ss SHARED src/ss.c)
+set(SOURCES src/ss.c)
+
+add_library(ss SHARED ${SOURCES})
 set_target_properties(ss PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(ss PROPERTIES SOVERSION 0)
 set_target_properties(ss PROPERTIES PUBLIC_HEADER include/ss.h)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_FLAGS_DEBUG "-O0")
 set(CMAKE_C_FLAGS_DEBUG "-O0")
 
