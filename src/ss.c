@@ -1,44 +1,85 @@
+/*******************************************************************************
+ * Copyright (c) 2019 Craig Jacobson
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ ******************************************************************************/
+/**
+ * @file ss.c
+ * @author Craig Jacobson
+ * @brief Simple String Library implementation.
+ *
+ * #### Prefixes:
+ * - ss_ is for manipulating binary ss buffers.
+ * - ssc_ is for manipulating ss buffers assumed to be c strings (US ASCII/UTF8).
+ * - ssu_ is for Unicode code-point operations.
+ * - ssu8_ is for UTF8 operations.
+ * - sse_ is for exporting internal functions primarily for testing.
+ */
 
-#include "ss.h"
 #include "ss_util.h"
+#include "ss.h"
 
 #include <ctype.h>
 #include <errno.h>
 #include <features.h>
 #include <limits.h>
 #include <stdarg.h>
-#include <stdint.h>
 #include <stdio.h>
 
+#ifndef LIKELY
 #ifdef __GNUC__
 #define LIKELY(x)   __builtin_expect(!!(x), 1)
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
 #else
 #define LIKELY(x)   (x)
+#endif
+#endif
+
+#ifndef UNLIKELY
+#ifdef __GNUC__
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
 #define UNLIKELY(x) (x)
 #endif
+#endif
 
+#ifndef INLINE
 #ifdef __GNUC__
 #define INLINE __attribute__((always_inline)) inline
-#define NOINLINE __attribute__((noinline))
 #else
 #define INLINE
+#endif
+#endif
+
+#ifndef NOINLINE
+#ifdef __GNUC__
+#define NOINLINE __attribute__((noinline))
+#else
 #define NOINLINE
 #endif
-
-#ifdef SS_MEMCHECK
-#define _SS_MEMRETVAL int
-#define _SS_MEMRETZERO return 0
-#else
-#define _SS_MEMRETVAL void
-#define _SS_MEMRETZERO return
 #endif
 
-#define SS_GROW_MAX (4)
-#define SS_GROW_SHIFT (16)
-#define SS_TYPE_MASK (0x0000FFFF)
-#define SS_GROW_MASK (0xFFFF0000)
-#define SS_HEAP_ALLOCATED (0x00000100)
+#define _SS_GROW_MAX (4)
+#define _SS_GROW_SHIFT (16)
+#define _SS_TYPE_MASK (0x0000FFFF)
+#define _SS_GROW_MASK (0xFFFF0000)
+#define _SS_HEAP_ALLOCATED (0x00000100)
+
 
 static void
 _ss_abort(bool is_malloc, size_t size)
@@ -77,7 +118,7 @@ _ss_rawrealloc_impl(void *oldmem, size_t size)
     return mem;
 }
 
-/**
+/*
  * Don't check for NULL since ss_free does operations
  * that would cause segfault anyways.
  */
@@ -94,6 +135,8 @@ enum _sstring_type
     _SSTRING_NORM  = 2,
 };
 
+/// @cond DOXYGEN_IGNORE
+
 typedef struct _sstring_s
 {
     size_t cap;
@@ -107,13 +150,15 @@ typedef struct _sstring_empty_s
     int s;
 } __attribute__((packed)) _sstring_empty_t;
 
-static _sstring_empty_t g_ss_empty[SS_GROW_MAX] =
+static _sstring_empty_t g_ss_empty[_SS_GROW_MAX] =
 {
-    { { 0, 0, SS_GROW0   << SS_GROW_SHIFT }, 0 },
-    { { 0, 0, SS_GROW25  << SS_GROW_SHIFT }, 0 },
-    { { 0, 0, SS_GROW50  << SS_GROW_SHIFT }, 0 },
-    { { 0, 0, SS_GROW100 << SS_GROW_SHIFT }, 0 },
+    { { 0, 0, SS_GROW0   << _SS_GROW_SHIFT }, 0 },
+    { { 0, 0, SS_GROW25  << _SS_GROW_SHIFT }, 0 },
+    { { 0, 0, SS_GROW50  << _SS_GROW_SHIFT }, 0 },
+    { { 0, 0, SS_GROW100 << _SS_GROW_SHIFT }, 0 },
 };
+
+/// @endcond
 
 INLINE static _sstring_t *
 _ss_meta(SS s)
@@ -129,52 +174,111 @@ _ss_cmeta(const SS s)
     return m - 1;
 }
 
+/**
+ * @internal
+ * @brief Convert metadata ref to SS.
+ */
 INLINE static SS
 _ss_string(_sstring_t *m)
 {
     return (SS)(m + 1);
 }
 
+/**
+ * @internal
+ * @return Length of string.
+ */
 INLINE static size_t
 _ss_len(const SS s)
 {
     return _ss_cmeta(s)->len;
 }
 
+/**
+ * @internal
+ * @return Type field of string.
+ */
 INLINE static uint32_t
 _ss_type(SS s)
 {
     return _ss_meta(s)->type;
 }
 
+/**
+ * @internal
+ * @return True if string is of the given type.
+ */
 INLINE static bool
 _ss_is_type(SS s, enum _sstring_type t)
 {
-    return (_ss_meta(s)->type & SS_TYPE_MASK) == (uint32_t)t;
+    return (_ss_meta(s)->type & _SS_TYPE_MASK) == (uint32_t)t;
 }
 
+/**
+ * @internal
+ * @return The maximum capacity.
+ */
 INLINE static size_t
 _ss_cap_max(void)
 {
-    return ((size_t)INT_MAX) - 2 - sizeof(_sstring_t);
+    return ((size_t)UINT_MAX) - 2 - sizeof(_sstring_t);
 }
 
+/**
+ * @internal
+ * @return True if the given capacity is in the valid range.
+ */
 INLINE static bool
 _ss_valid_cap(size_t cap)
 {
     return !!(cap <= _ss_cap_max());
 }
 
+/**
+ * @internal
+ * @brief Adjust the capacity of the string to that given.
+ */
 INLINE static _sstring_t *
 _ss_realloc(_sstring_t *m, size_t cap)
 {
     _sstring_t *m2;
 
-    if (m->type & SS_GROW_MASK)
+    if (m->type & _SS_HEAP_ALLOCATED)
+    {
+        m2 = ss_rawrealloc(m, sizeof(_sstring_t) + cap + 1);
+        if (cap < m2->cap)
+        {
+            _ss_string(m2)[cap] = 0;
+        }
+        m2->cap = cap;
+    }
+    else
+    {
+        m2 = ss_rawalloc(sizeof(_sstring_t) + cap + 1);
+        m2->cap = cap;
+        m2->len = m->len;
+        m2->type =
+            (m->type & _SS_GROW_MASK)
+            | _SS_HEAP_ALLOCATED
+            | _SSTRING_NORM;
+        ss_memcopy((SS)(m2 + 1), (SS)(m + 1), m->len + 1);
+    }
+
+    return m2;
+}
+
+/**
+ * @internal
+ * @brief Adjust capactiy of the string applying growth values.
+ */
+INLINE static _sstring_t *
+_ss_realloc_grow(_sstring_t *m, size_t cap)
+{
+    if (m->type & _SS_GROW_MASK)
     {
         size_t growcap = 0;
 
-        switch (m->type >> SS_GROW_SHIFT)
+        switch (m->type >> _SS_GROW_SHIFT)
         {
             case SS_GROW25:
                 growcap = cap/4;
@@ -205,32 +309,10 @@ _ss_realloc(_sstring_t *m, size_t cap)
         }
     }
 
-    if (m->type & SS_HEAP_ALLOCATED)
-    {
-        m2 = ss_rawrealloc(m, sizeof(_sstring_t) + cap + 1);
-        if (m2)
-        {
-            m2->cap = cap;
-        }
-    }
-    else
-    {
-        m2 = malloc(sizeof(_sstring_t) + cap + 1);
-        if (m2)
-        {
-            m2->cap = cap;
-            m2->len = m->len;
-            m2->type =
-                (m->type & SS_GROW_MASK)
-                | SS_HEAP_ALLOCATED
-                | _SSTRING_NORM;
-            ss_memcopy((SS)(m2 + 1), (SS)(m + 1), m->len + 1);
-        }
-    }
-    return m2;
+    return _ss_realloc(m, cap);
 }
 
-const char *
+INLINE static const char *
 _ss_memrchar(const char *buf, char find, size_t searchlen)
 {
     const char *end = buf + searchlen;
@@ -246,12 +328,23 @@ _ss_memrchar(const char *buf, char find, size_t searchlen)
     return NULL;
 }
 
+/**
+ * The empty string is great if you want to avoid NULL checks but have
+ * O(1) time and space cost.
+ * This reference is not allocated, but will become allocated once you 
+ * add to it using the library functions.
+ * @warning While you can duplicate the empty string reference safely, don't.
+ * @return Empty string reference.
+ */
 SS
 ss_empty(void)
 {
     return _ss_string((_sstring_t *)&g_ss_empty[0]);
 }
 
+/**
+ * @return String with capacity as specified.
+ */
 SS
 ss_new(size_t cap)
 {
@@ -272,7 +365,7 @@ ss_new(size_t cap)
     {
         m->cap = cap;
         m->len = 0;
-        m->type = SS_HEAP_ALLOCATED | _SSTRING_NORM;
+        m->type = _SS_HEAP_ALLOCATED | _SSTRING_NORM;
         s = _ss_string(m);
         s[0] = 0;
     }
@@ -280,6 +373,9 @@ ss_new(size_t cap)
     return s;
 }
 
+/**
+ * @return New string with the given capacity and copy of the given string.
+ */
 SS
 ss_newfrom(size_t cap, const char *cs, size_t len)
 {
@@ -291,7 +387,7 @@ ss_newfrom(size_t cap, const char *cs, size_t len)
     {
         m->cap = cap;
         m->len = len;
-        m->type = SS_HEAP_ALLOCATED | _SSTRING_NORM;
+        m->type = _SS_HEAP_ALLOCATED | _SSTRING_NORM;
         s = _ss_string(m);
         if (len)
         {
@@ -303,59 +399,102 @@ ss_newfrom(size_t cap, const char *cs, size_t len)
     return s;
 }
 
+/**
+ * @return Duplicate of the given string.
+ */
 SS
 ss_dup(SS s)
 {
     return ss_newfrom(0, s, ss_len(s));
 }
 
+/**
+ * @brief Free the given string.
+ * @note Will properly check for empty and stack string types.
+ * @param s
+ */
 void
 ss_free(SS *s) 
 {
     /* Empty string and stack string will not have flag set. */
-    if ((_ss_type(*s)) & SS_HEAP_ALLOCATED)
+    if ((_ss_type(*s)) & _SS_HEAP_ALLOCATED)
     {
         ss_rawfree(_ss_meta(*s));
     }
     (*s) = NULL;
 }
 
+/**
+ * @warning Your system and available memory may restrict this more.
+ * @note The value is adjusted for the metadata and NULL sentinel.
+ * @return The maximum capacity value.
+ */
+size_t
+ss_maxcap(void)
+{
+    return _ss_cap_max();
+}
+
+/**
+ * @note If you have a c-string you're using and have modified the string
+ *       so the end is different than before, call ssc_setlen before using.
+ * @return Length of the string in O(1) time.
+ */
 size_t
 ss_len(const SS s)
 {
     return _ss_len(s);
 }
 
+/**
+ * @note The length will always be less than or equal to capacity.
+ * @return The capacity of the string.
+ */
 size_t
 ss_cap(const SS s)
 {
     return _ss_cmeta(s)->cap;
 }
 
+/**
+ * @return True if the length is zero.
+ */
 bool
 ss_isempty(const SS s)
 {
     return !(_ss_len(s));
 }
 
+/**
+ * @return True if this was a string returned from ss_empty.
+ */
 bool
 ss_isemptytype(const SS s)
 {
     return _ss_is_type(s, _SSTRING_EMPTY);
 }
 
+/**
+ * @return True if this string is on the heap (malloc'd).
+ */
 bool
 ss_isheaptype(const SS s)
 {
-    return ((_ss_type(s)) & SS_HEAP_ALLOCATED);
+    return ((_ss_type(s)) & _SS_HEAP_ALLOCATED);
 }
 
+/**
+ * @return True if this string is on the stack.
+ */
 bool
 ss_isstacktype(const SS s)
 {
     return _ss_is_type(s, _SSTRING_STACK);
 }
 
+/**
+ * @return True if both strings are equal (capacity can differ); false othewise.
+ */
 bool
 ss_equal(const SS s1, const SS s2)
 {
@@ -375,6 +514,10 @@ ss_equal(const SS s1, const SS s2)
     return 0 == ss_memcompare(s1, s2, m1->len);
 }
 
+/**
+ * @note Uses memcmp by default. Make your own for local specific strings.
+ * @return <1 if s1 < s2, >1 if s2 < s1, zero if equal.
+ */
 int
 ss_compare(const SS s1, const SS s2)
 {
@@ -401,6 +544,9 @@ ss_compare(const SS s1, const SS s2)
     return ss_memcompare(s1, s2, len);
 }
 
+/**
+ * @return The index of the string to find; NPOS if not found.
+ */
 size_t
 ss_find(const SS s, size_t index, const char *cs, size_t len)
 {
@@ -443,6 +589,9 @@ ss_find(const SS s, size_t index, const char *cs, size_t len)
     return NPOS;
 }
 
+/**
+ * @return The right-most index of the string to find; NPOS if not found.
+ */
 size_t
 ss_rfind(const SS s, size_t index, const char *cs, size_t len)
 {
@@ -492,6 +641,9 @@ ss_rfind(const SS s, size_t index, const char *cs, size_t len)
     return NPOS;
 }
 
+/**
+ * @return The count of the number of sub-strings found.
+ */
 size_t
 ss_count(const SS s, size_t index, const char *cs, size_t len)
 {
@@ -548,6 +700,11 @@ ss_count(const SS s, size_t index, const char *cs, size_t len)
     return count;
 }
 
+/**
+ * @brief Safely set the length of the string. Cannot exceed capacity.
+ * @param s
+ * @param len - The length to set the string to.
+ */
 void
 ss_setlen(SS s, size_t len)
 {
@@ -561,18 +718,23 @@ ss_setlen(SS s, size_t len)
     }
 }
 
+/**
+ * @brief Call to use strlen to set the length.
+ * @note As a precaution the NULL sentinel is reset.
+ * @param s
+ */
 void
 ssc_setlen(SS s)
 {
     _sstring_t *m = _ss_meta(s);
 
+    /* Don't modify empty string. */
     if (m->cap)
     {
-        /* Don't modify empty string. */
         s[m->cap] = 0;
     }
 
-    size_t len = strlen(s);
+    size_t len = ss_cstrlen(s);
 
     if (len <= m->cap)
     {
@@ -581,6 +743,11 @@ ssc_setlen(SS s)
     }
 }
 
+/**
+ * @brief Set the growth rate option in the string's metadata.
+ * @param s
+ * @param opt - The chosen growth rate.
+ */
 void
 ss_setgrow(SS *s, enum ss_grow_opt opt)
 {
@@ -595,7 +762,7 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
             case SS_GROW100:
                 {
                     uint32_t t = _ss_type(*s);
-                    _ss_meta(*s)->type = (opt << SS_GROW_SHIFT) | ((t) & ~SS_GROW_MASK);
+                    _ss_meta(*s)->type = (opt << _SS_GROW_SHIFT) | ((t) & ~_SS_GROW_MASK);
                 }
                 break;
         }
@@ -606,36 +773,35 @@ ss_setgrow(SS *s, enum ss_grow_opt opt)
     }
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Forces the string to be allocated onto the heap.
+ * @param s
+ */
+void
 ss_heapify(SS *s)
 {
-    if (!(_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (!(_ss_type(*s) & _SS_HEAP_ALLOCATED))
     {
         const _sstring_t *m = _ss_cmeta(*s);
         _sstring_t *m2 = ss_rawalloc(sizeof(_sstring_t) + m->len + 1);
-#ifdef SS_MEMCHECK
-        if (!m2)
-        {
-            return ENOMEM;
-        }
-#endif
 
         SS s2 = _ss_string(m2);
         ss_memcopy(s2, *s, m->len + 1);
         m2->cap = m->len;
         m2->len = m->len;
         m2->type =
-            SS_HEAP_ALLOCATED
+            _SS_HEAP_ALLOCATED
             | _SSTRING_NORM
-            | (SS_GROW_MASK & m->type);
+            | (_SS_GROW_MASK & m->type);
         *s = s2;
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
+/**
+ * @brief Swaps the two references.
+ * @param s1
+ * @param s2
+ */
 void
 ss_swap(SS *s1, SS *s2)
 {
@@ -644,7 +810,13 @@ ss_swap(SS *s1, SS *s2)
     *s2 = tmp;
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Make sure the string can hold at least the given amount.
+ * @note Growth disabled.
+ * @param s
+ * @param res - The amount to ensure the string can hold.
+ */
+void
 ss_reserve(SS *s, size_t res)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -653,22 +825,17 @@ ss_reserve(SS *s, size_t res)
     if (m->cap < res)
     {
         m = _ss_realloc(m, res);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
 
         *s = _ss_string(m);
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Reallocate to get rid of excess capacity.
+ * @note Growth disabled.
+ * @param s
+ */
+void
 ss_fit(SS *s)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -676,44 +843,33 @@ ss_fit(SS *s)
     /* We don't want to fit empty.
      * We don't want to fit stack allocated.
      */
-    if (m->cap != m->len && (_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (m->cap != m->len && (_ss_type(*s) & _SS_HEAP_ALLOCATED))
     {
-        uint32_t before = m->type;
-        m->type = m->type & SS_TYPE_MASK;
         m = _ss_realloc(m, m->len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            m = _ss_meta(*s);
-            m->type = before;
-            return ENOMEM;
-        }
-#endif
-        m->type = before;
-
         *s = _ss_string(m);
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Set the capacity the amount given.
+ * @note Differs from `ss_reserve` in that reserve will not reallocate
+ *       if there is enough capacity.
+ * @note Stack allocated strings will not switch to the heap if there is space.
+ * @note Growth disabled.
+ * @param s
+ * @param res - The amount of capacity to have.
+ */
+void
 ss_resize(SS *s, size_t res)
 {
     _sstring_t *m = _ss_meta(*s);
 
     /* If stack allocated and has capacity, just return. */
-    if (!(_ss_type(*s) & SS_HEAP_ALLOCATED))
+    if (!(_ss_type(*s) & _SS_HEAP_ALLOCATED))
     {
         if (m->cap >= res)
         {
-#ifdef SS_MEMCHECK
-            return 0;
-#else
             return;
-#endif
         }
     }
 
@@ -722,13 +878,6 @@ ss_resize(SS *s, size_t res)
         bool truncate = res < m->len;
 
         m = _ss_realloc(m, res);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
         *s = _ss_string(m);
 
         if (truncate)
@@ -737,13 +886,15 @@ ss_resize(SS *s, size_t res)
             (*s)[res] = 0;
         }
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Convenience function to add capacity to the string.
+ * @note Growth disabled.
+ * @param s
+ * @param add - The amount to add.
+ */
+void
 ss_addcap(SS *s, size_t add)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -752,28 +903,18 @@ ss_addcap(SS *s, size_t add)
     size_t newcap = m->cap + add;
     if (newcap < m->cap)
     {
-#ifdef SS_MEMCHECK
-        return EINVAL;
-#else
         newcap = _ss_cap_max();
-#endif
     }
 
     m = _ss_realloc(m, newcap);
-#ifdef SS_MEMCHECK
-    if (!m)
-    {
-        return ENOMEM;
-    }
-#endif
 
     *s = _ss_string(m);
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
+/**
+ * @brief Clear the string (length to zero and sentinel in place).
+ * @param s
+ */
 void
 ss_clear(SS s)
 {
@@ -784,6 +925,13 @@ ss_clear(SS s)
     }
 }
 
+/**
+ * @brief Remove the given substring from the string.
+ * @param s
+ * @param index - The place to start.
+ * @param cs - The substring to remove.
+ * @param len - The length of substring.
+ */
 void
 ss_remove(SS s, size_t index, const char *cs, size_t len)
 {
@@ -857,6 +1005,12 @@ ss_remove(SS s, size_t index, const char *cs, size_t len)
     }
 }
 
+/**
+ * @brief Remove a section of string.
+ * @param s
+ * @param start - The starting point (inclusive).
+ * @param end - The ending point (exclusive).
+ */
 void
 ss_removerange(SS s, size_t start, size_t end)
 {
@@ -877,6 +1031,10 @@ ss_removerange(SS s, size_t start, size_t end)
     m->len -= (end - start);
 }
 
+/**
+ * @brief Reverse the characters in the string.
+ * @param s
+ */
 void
 ss_reverse(SS s)
 {
@@ -899,6 +1057,12 @@ ss_reverse(SS s)
     }
 }
 
+/**
+ * @brief Chop off the end of the string.
+ * @note Length is updated and sentinel is set.
+ * @param s
+ * @param index - The place to truncate the string.
+ */
 void
 ss_trunc(SS s, size_t index)
 {
@@ -911,6 +1075,12 @@ ss_trunc(SS s, size_t index)
     }
 }
 
+/**
+ * @brief Trim the characters from the beginning and end of the string.
+ * @param s
+ * @param cs - The substring listing the characters to trim.
+ * @param len - The length of substring.
+ */
 void
 ss_trim(SS s, const char *cs, size_t len)
 {
@@ -946,6 +1116,14 @@ ss_trim(SS s, const char *cs, size_t len)
     }
 }
 
+/**
+ * @brief Trim the characters from the beginning and end in the range.
+ * @param s
+ * @param rstart - The start of the range (inclusive).
+ * @param rend - The end of the range (exclusive).
+ * @param cs - The substring of characters to trim.
+ * @param len - The length of the substring.
+ */
 void
 ss_trimrange(SS s, size_t rstart, size_t rend, const char *cs, size_t len)
 {
@@ -997,6 +1175,12 @@ ss_trimrange(SS s, size_t rstart, size_t rend, const char *cs, size_t len)
     }
 }
 
+/**
+ * @brief Like the other trim methods, but assumes a cstring.
+ * @note This is done because strchr is likely highly optimized.
+ * @param s
+ * @param cs - The substring of characters to trim.
+ */
 void
 ssc_trim(SS s, const char *cs)
 {
@@ -1042,6 +1226,10 @@ ssc_trim(SS s, const char *cs)
     s[m->len] = 0;
 }
 
+/**
+ * @brief Convert US-ASCII characters to uppercase.
+ * @param s
+ */
 void
 ssc_upper(SS s)
 {
@@ -1052,6 +1240,10 @@ ssc_upper(SS s)
     }
 }
 
+/**
+ * @brief Convert US-ASSII characters to lowercase.
+ * @param s
+ */
 void
 ssc_lower(SS s)
 {
@@ -1062,6 +1254,12 @@ ssc_lower(SS s)
     }
 }
 
+/**
+ * @internal
+ * @return The numerical value of the hexidecimal US-ASCII character
+ *         code point ('0'-'F', upper/lower).
+ * @param c - The hex character.
+ */
 INLINE static unsigned char
 _ss_tohexval(unsigned char c)
 {
@@ -1091,6 +1289,10 @@ _ss_tohexval(unsigned char c)
     return map[c];
 }
 
+/**
+ * @param n - The uint32_t to count bits of.
+ * @return Number of bits set.
+ */
 INLINE static int
 _ss_pop32(uint32_t n)
 {
@@ -1099,7 +1301,7 @@ _ss_pop32(uint32_t n)
     return (((n + (n >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
 }
 
-/**
+/*
  * Note that we don't use GCC clz impl
  * because the result when n = 0 is undefined.
  */
@@ -1119,8 +1321,9 @@ _ss_clz32_impl(uint32_t n)
 }
 
 /**
- * Uses de Bruijn algorithm for minimal perfect hashing.
+ * @note Uses de Bruijn algorithm for minimal perfect hashing.
  * @see https://en.wikipedia.org/wiki/Find_first_set
+ * @return Return most significant bit index or zero if none.
  */
 INLINE static int
 _ss_msb32_impl(uint32_t c)
@@ -1215,6 +1418,10 @@ _ss_unicodetoutf8(unicode_t c, unsigned char *buf)
     }
 }
 
+/**
+ * @brief Unescape the characters according to standard c-string escape sequences.
+ * @param s
+ */
 void
 ssc_unesc(SS s)
 {
@@ -1445,88 +1652,82 @@ ssc_unesc(SS s)
     m->len = newlen;
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Copy the substring into the string.
+ * @param s
+ * @param cs - The substring.
+ * @param len - The lenght of substring.
+ */
+void
 ss_copy(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
 
     if (len > m->cap)
     {
-        m = _ss_realloc(m, len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, len);
         *s = _ss_string(m);
     }
 
     ss_memcopy(*s, cs, len);
     m->len = len;
     (*s)[m->len] = 0;
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Concatenate the substring onto the string.
+ * @param s
+ * @param cs - The substring.
+ * @param len - The lenght of substring.
+ */
+void
 ss_cat(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
 
     if ((m->len + len) > m->cap)
     {
-        m = _ss_realloc(m, m->len + len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->len + len);
         *s = _ss_string(m);
     }
 
     ss_memcopy(*s + m->len, cs, len);
     m->len += len;
     (*s)[m->len] = 0;
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Left-concatenate the substring onto the string.
+ * @param s
+ * @param cs - The substring.
+ * @param len - The lenght of substring.
+ */
+void
 ss_lcat(SS *s, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
 
     if ((m->len + len) > m->cap)
     {
-        m = _ss_realloc(m, m->len + len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->len + len);
         *s = _ss_string(m);
     }
 
     ss_memmove(*s + len, *s, m->len + 1);
     ss_memcopy(*s, cs, len);
     m->len += len;
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Replace a substring within the string with another value.
+ * @param s
+ * @param index - The index to start searching.
+ * @param replace - The string to replace.
+ * @param rlen - The length of `replace`.
+ * @param with - The string to replace with.
+ * @param wlen - The length of `with`.
+ */
+void
 ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *with, size_t wlen)
 {
     if (!rlen)
@@ -1537,22 +1738,14 @@ ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *wi
     if (!wlen)
     {
         ss_remove(*s, index, replace, rlen);
-#ifdef SS_MEMCHECK
-        return 0;
-#else
         return;
-#endif
     }
 
     _sstring_t *m = _ss_meta(*s);
 
     if (index >= m->len)
     {
-#ifdef SS_MEMCHECK
-        return 0;
-#else
         return;
-#endif
     }
 
     if (wlen <= rlen)
@@ -1630,14 +1823,7 @@ ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *wi
             size_t cap = (diff * count) + m->len;
             if (cap > m->cap)
             {
-                m = _ss_realloc(m, cap);
-#ifdef SS_MEMCHECK
-                if (!m)
-                {
-                    return ENOMEM;
-                }
-#endif
-
+                m = _ss_realloc_grow(m, cap);
                 *s = _ss_string(m);
             }
 
@@ -1707,13 +1893,17 @@ ss_replace(SS *s, size_t index, const char *replace, size_t rlen, const char *wi
             }
         }
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Replace a range with a substring.
+ * @param s
+ * @param start - The start of the range (inclusive).
+ * @param end - End of the range (exclusive).
+ * @param cs - The substring.
+ * @param len - The length of substring.
+ */
+void
 ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1734,14 +1924,7 @@ ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
     {
         if ((m->len + (len - rlen)) > m->cap)
         {
-            m = _ss_realloc(m , m->len + (len - rlen));
-#ifdef SS_MEMCHECK
-            if (!m)
-            {
-                return ENOMEM;
-            }
-#endif
-
+            m = _ss_realloc_grow(m , m->len + (len - rlen));
             *s = _ss_string(m);
         }
     }
@@ -1754,13 +1937,16 @@ ss_replacerange(SS *s, size_t start, size_t end, const char *cs, size_t len)
 
     ss_memcopy(*s + start, cs, len);
     m->len = (m->len - rlen) + len;
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Insert the string at the given index.
+ * @param s
+ * @param index - Position to insert substring.
+ * @param cs - Substring.
+ * @param len - Substring length.
+ */
+void
 ss_insert(SS *s, size_t index, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1772,14 +1958,7 @@ ss_insert(SS *s, size_t index, const char *cs, size_t len)
 
     if ((m->len + len) > m->cap)
     {
-        m = _ss_realloc(m, m->len + len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->len + len);
         *s = _ss_string(m);
     }
 
@@ -1790,13 +1969,16 @@ ss_insert(SS *s, size_t index, const char *cs, size_t len)
     ss_memcopy(src, cs, len);
     m->len += len;
     (*s)[m->len] = 0;
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Places the substring over the existing string starting at the given position.
+ * @param s
+ * @param index - The start position.
+ * @param cs - Substring.
+ * @param len - Substring length.
+ */
+void
 ss_overlay(SS *s, size_t index, const char *cs, size_t len)
 {
     _sstring_t *m = _ss_meta(*s);
@@ -1810,14 +1992,7 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
 
     if (overend > m->cap)
     {
-        m = _ss_realloc(m, overend);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, overend);
         *s = _ss_string(m);
     }
 
@@ -1827,12 +2002,16 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
         m->len = overend;
         (*s)[overend] = 0;
     }
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
+/**
+ * @brief A very useful function to write information to the string using a
+ *        format string.
+ * @note If using GCC you should get warnings for bad format strings.
+ * @param s
+ * @param fmt - Format string.
+ * @return EINVAL if bad format string; zero otherwise.
+ */
 int
 ss_copyf(SS *s, const char *fmt, ...)
 {
@@ -1841,14 +2020,7 @@ ss_copyf(SS *s, const char *fmt, ...)
 
     if (m->cap == 0)
     {
-        m = _ss_realloc(m, ss_cstrlen(fmt) + 1);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, ss_cstrlen(fmt) + 1);
         *s = _ss_string(m);
     }
 
@@ -1887,22 +2059,21 @@ ss_copyf(SS *s, const char *fmt, ...)
             break;
         }
 
-        m = _ss_realloc(m, m->cap + 1);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            _ss_meta(*s)->len = 0;
-            (*s)[0] = 0;
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->cap + 1);
         *s = _ss_string(m);
     }
 
     return 0;
 }
 
+/**
+ * @brief A very useful function to write information to the end of a string 
+ *        using a format string.
+ * @note If using GCC you should get warnings for bad format strings.
+ * @param s
+ * @param fmt - Format string.
+ * @return EINVAL if bad format string; zero otherwise.
+ */
 int
 ss_catf(SS *s, const char *fmt, ...)
 {
@@ -1911,14 +2082,7 @@ ss_catf(SS *s, const char *fmt, ...)
 
     if (m->cap == 0)
     {
-        m = _ss_realloc(m, ss_cstrlen(fmt) + 1);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, ss_cstrlen(fmt) + 1);
         *s = _ss_string(m);
     }
 
@@ -1957,22 +2121,19 @@ ss_catf(SS *s, const char *fmt, ...)
             break;
         }
 
-        m = _ss_realloc(m, m->cap + 1);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            (*s)[ss_len(*s)] = 0;
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->cap + 1);
         *s = _ss_string(m);
     }
 
     return 0;
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Concatenate the signed integral value in decimal.
+ * @param s
+ * @param val - The value to convert.
+ */
+void
 ss_catint64(SS *s, int64_t val)
 {
     char buf[32];
@@ -2013,14 +2174,7 @@ ss_catint64(SS *s, int64_t val)
     size_t len = p - buf;
     if ((m->len + len) > m->cap)
     {
-        m = _ss_realloc(m, m->len + len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->len + len);
         *s = _ss_string(m);
     }
 
@@ -2033,13 +2187,14 @@ ss_catint64(SS *s, int64_t val)
         *ss = *p;
         ++ss;
     } while (p != buf);
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Concatenate the unsigned integral value in decimal.
+ * @param s
+ * @param val - The value to convert.
+ */
+void
 ss_catuint64(SS *s, uint64_t val)
 {
     char buf[32];
@@ -2064,14 +2219,7 @@ ss_catuint64(SS *s, uint64_t val)
     size_t len = p - buf;
     if ((m->len + len) > m->cap)
     {
-        m = _ss_realloc(m, m->len + len);
-#ifdef SS_MEMCHECK
-        if (!m)
-        {
-            return ENOMEM;
-        }
-#endif
-
+        m = _ss_realloc_grow(m, m->len + len);
         *s = _ss_string(m);
     }
 
@@ -2084,10 +2232,6 @@ ss_catuint64(SS *s, uint64_t val)
         *ss = *p;
         ++ss;
     } while (p != buf);
-
-#ifdef SS_MEMCHECK
-    return 0;
-#endif
 }
 
 INLINE static char
@@ -2103,27 +2247,21 @@ _ss_tohexchar(unsigned char nibble)
     return map[nibble];
 }
 
-_SS_MEMRETVAL
+/**
+ * @brief Escape the characters in the given string.
+ * @param s
+ */
+void
 ssc_esc(SS *s)
 {
     _sstring_t *m = _ss_meta(*s);
 
     if (!m->len)
     {
-#ifdef SS_MEMCHECK
-        return 0;
-#else
         return;
-#endif
     }
 
     SS t = ss_new(m->len * 2);
-#ifdef SS_MEMCHECK
-    if (!t)
-    {
-        return ENOMEM;
-    }
-#endif
     ss_setgrow(&t, SS_GROW100);
 
     char *p = *s;
@@ -2181,19 +2319,14 @@ ssc_esc(SS *s)
         ++p;
     }
 
-#ifdef SS_MEMCHECK
-    int code = ss_copy(s, t, _ss_len(t));
-
-    ss_free(&t);
-
-    return code;
-#else
     ss_copy(s, t, _ss_len(t));
     ss_free(&t);
-#endif
-
 }
 
+/**
+ * @param c - Unicode code point.
+ * @return True if the code point is a valid Unicode code point.
+ */
 bool
 ssu_isvalid(unicode_t c)
 {
@@ -2203,6 +2336,10 @@ ssu_isvalid(unicode_t c)
     return c < 0x0000D800 || (c > 0x0000DFFF && c <= 0x0010FFFF);
 }
 
+/**
+ * @param c - Unicode code point.
+ * @return Length of the UTF-8 sequence that would result from the given code point.
+ */
 int
 ssu8_cpseqlen(unicode_t c)
 {
@@ -2246,7 +2383,7 @@ ssu8_seqlen(const char *seq)
 }
 
 /**
- * @warn This will encode invalid code points. Use ssu_isvalid to check.
+ * @warning This will encode invalid code points. Use ssu_isvalid to check.
  * @return Sequence length, zero if invalid.
  */
 int
@@ -2255,6 +2392,12 @@ ssu8_cptoseq(unicode_t c, char *seq)
     return _ss_unicodetoutf8(c, (unsigned char *)seq);
 }
 
+/**
+ * @brief Convert the given sequence to a Unicode point in `cpout`.
+ * @param seq - Pointer to the UTF-8 sequence.
+ * @param cpout - Pointer to Unicode code point storage.
+ * @return The length of the sequence; zero on failure.
+ */
 int
 ssu8_seqtocp(const char *seq, unicode_t *cpout)
 {
@@ -2360,18 +2503,27 @@ ssu8_seqtocp(const char *seq, unicode_t *cpout)
     return 0;
 }
 
+/**
+ * @return Number of leading zeros; returns 32 when 0.
+ */
 int
 sse_clz32(uint32_t n)
 {
     return _ss_clz32_impl(n);
 }
 
+/**
+ * @return Index of most significant bit; zero when input is 0.
+ */
 int
 sse_msb32(uint32_t n)
 {
     return _ss_msb32_impl(n);
 }
 
+/**
+ * @return Pointer to the right-most character in the buffer; NULL if not found.
+ */
 const char *
 sse_memrchar(const char *buf, char find, size_t len)
 {

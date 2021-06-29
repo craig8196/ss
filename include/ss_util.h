@@ -20,18 +20,24 @@
  * SOFTWARE.
  ******************************************************************************/
 /**
- * @file sstring_util.h
+ * @file ss_util.h
  * @author Craig Jacobson
  * @brief Lower level utilities for simple tasks.
+ *
+ * These can be replaced if there are better implementations that the user
+ * prefers.
+ * For example, maybe you prefer to use SSE instructions for memchr.
  */
-#ifndef SSTRING_UTIL_H_
-#define SSTRING_UTIL_H_
+#ifndef SS_UTIL_H_
+#define SS_UTIL_H_
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
 #include <string.h>
+
+/// @cond DOXYGEN_IGNORE
 
 #define ss_rawalloc _ss_rawalloc_impl
 #define ss_rawrealloc _ss_rawrealloc_impl
@@ -44,19 +50,17 @@ extern "C" {
 #define ss_memchar memchr
 #define ss_mmemchar memchr
 #define ss_memrchar _ss_memrchar
-#define ss_mmemrchar _ss_memrchar
 #define ss_memcompare memcmp
 #define ss_vsnprintf vsnprintf
 
 /* Maximum growth rate ~1MB (2**20). */
 #define SS_MAX_REALLOC (0x100000)
 
-/* Uncomment if you prefer functions to return error values on ENOMEM. */
-// #define SS_MEMCHECK
+/// @endcond
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* SSTRING_UTIL_H_ */
+#endif /* SS_UTIL_H_ */
 
 

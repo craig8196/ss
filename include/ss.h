@@ -20,15 +20,16 @@
  * SOFTWARE.
  ******************************************************************************/
 /**
- * @file sstring.h
+ * @file ss.h
  * @author Craig Jacobson
- * @brief Simple string implementation.
+ * @brief Simple string functions.
  *
- * Prefixes:
- * ss_ is for manipulating binary ss buffers.
- * ssc_ is for manipulating ss buffers assumed to be c strings (US ASCII/UTF8).
- * ssu_ is for unicode operations, UTF8 is the unicode encoding used.
- * sse_ is for exporting internal functions primarily for testing.
+ * #### Prefixes:
+ * - ss_ is for manipulating binary ss buffers.
+ * - ssc_ is for manipulating ss buffers assumed to be c strings (US ASCII/UTF8).
+ * - ssu_ is for Unicode code-point operations.
+ * - ssu8_ is for UTF8 operations.
+ * - sse_ is for exporting internal functions primarily for testing.
  */
 #ifndef SS_H_
 #define SS_H_
@@ -43,20 +44,38 @@ extern "C" {
 
 
 #ifndef NPOS
+/** @brief Invalid index value used to detect errors. */
 #define NPOS ((size_t)-1)
 #endif
 
+/**
+ * @brief Definition of SS.
+ *        This should help it work with c-string functions
+ *        without warnings.
+ *        But also help type check for modern compilers.
+ */
 typedef char * SS;
 
+/**
+ * @brief Values to specify growth rates.
+ * @note If the user wants a more custom groth rate, then use
+ *       the capacity altering functions.
+ */
 enum ss_grow_opt
 {
+    /** @brief Don't allocate extra space only the amount needed. */
     SS_GROWFIT = 0,
+    /** @brief Same as `SS_GROWFIT`. */
     SS_GROW0   = 0,
+    /** @brief Grow the buffer by 25% on reallocation. */
     SS_GROW25  = 1,
+    /** @brief Grow the buffer by 50% on reallocation. */
     SS_GROW50  = 2,
+    /** @brief Grow the buffer by 100% on reallocation. */
     SS_GROW100 = 3,
 };
 
+/// @cond DOXYGEN_IGNORE
 
 /* Constructors */
 SS
@@ -92,6 +111,8 @@ ssc_dup(const char *);
 
 
 /* Queries */
+size_t
+ss_maxcap(void);
 size_t
 ss_len(const SS);
 size_t
@@ -221,6 +242,8 @@ int
 sse_msb32(uint32_t n);
 const char *
 sse_memrchar(const char *, char, size_t);
+
+/// @endcond
 
 #ifdef __cplusplus
 }

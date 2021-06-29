@@ -1694,10 +1694,12 @@ spec("simple-string library")
     {
         it("should return zero if input is zero")
         {
+            /* What's happening? */
             check(0 == sse_msb32(0));
+            /* What's happening? */
         }
 
-        it("should find the most significant bit")
+        it("should find the most significant bit index")
         {
             uint32_t n = 1;
             int count = 32;

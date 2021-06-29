@@ -1,0 +1,20 @@
+PROJECT_NAME           = "@CMAKE_PROJECT_NAME@"
+PROJECT_NUMBER         = @CMAKE_PROJECT_VERSION@
+STRIP_FROM_PATH        = @PROJECT_SOURCE_DIR@ \
+                         @PROJECT_BINARY_DIR@
+INPUT                  = @PROJECT_README_FILE@ \
+                         @MYPROJECT_SOURCE_DIR@ \
+                         @MYPROJECT_INCLUDE_DIR@
+FILE_PATTERNS          = *.h \
+                         *.c
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = @PROJECT_README_FILE@
+INTERNAL_DOCS          = NO
+EXCLUDE_SYMBOLS        = _sstring_* \
+                         __attribute__ \
+                         _SS_* \
+                         LIKELY \
+                         UNLIKELY \
+                         INLINE \
+                         NOINLINE
+
