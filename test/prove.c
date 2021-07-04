@@ -146,33 +146,69 @@ spec("simple-string library")
             char buf[] = "1111";
             size_t len = strlen(buf);
 
-            SS s = ss_new(0);
-            ss_setgrow(&s, SS_GROW25);
-            ss_copy(&s, buf, len);
-            check(ss_cap(s) > len);
-            ss_free(&s);
+            SS s;
 
             s = ss_new(0);
-            ss_setgrow(&s, SS_GROW50);
-            ss_copy(&s, buf, len);
-            check(ss_cap(s) > len);
-            ss_free(&s);
-
-            s = ss_new(0);
-            ss_setgrow(&s, SS_GROW100);
-            ss_copy(&s, buf, len);
-            check(ss_cap(s) > len);
-            ss_free(&s);
-
-            s = ss_empty();
+            ss_setgrow(&s, SS_GROW0);
             check(ss_cap(s) == 0);
             check(ss_len(s) == 0);
             check(s[0] == 0);
-            ss_setgrow(&s, SS_GROW25);
-            ss_setgrow(&s, SS_GROW50);
-            ss_setgrow(&s, SS_GROW100);
-            ss_setgrow(&s, SS_GROW0);
+            ss_copy(&s, "1", 1);
+            check(ss_cap(s) == 1);
+            check(ss_len(s) == 1);
+            check(s[1] == 0);
             ss_free(&s);
+
+            s = ss_new(0);
+            ss_setgrow(&s, SS_GROW25);
+            ss_copy(&s, buf, len);
+            check(ss_cap(s) > len);
+            ss_free(&s);
+
+            s = ss_new(0);
+            ss_setgrow(&s, SS_GROW50);
+            ss_copy(&s, buf, len);
+            check(ss_cap(s) > len);
+            ss_free(&s);
+
+            s = ss_new(0);
+            ss_setgrow(&s, SS_GROW100);
+            ss_copy(&s, buf, len);
+            check(ss_cap(s) > len);
+            ss_free(&s);
+        }
+
+        it("should work with the empty string type")
+        {
+            SS s;
+
+            s = ss_empty();
+            SS save0 = s;
+            ss_setgrow(&s, SS_GROWFIT);
+            check(save0 == s);
+            ss_free(&s);
+
+            s = ss_empty();
+            ss_setgrow(&s, SS_GROW25);
+            SS save25 = s;
+            check(save25 != save0);
+            ss_free(&s);
+
+            s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+            SS save50 = s;
+            check(save50 != save0);
+            check(save50 != save25);
+            ss_free(&s);
+
+            s = ss_empty();
+            ss_setgrow(&s, SS_GROW100);
+            SS save100 = s;
+            check(save100 != save0);
+            check(save100 != save25);
+            check(save100 != save50);
+            ss_free(&s);
+
         }
     }
 
@@ -536,11 +572,13 @@ spec("simple-string library")
             check(ss_cap(s) == 10);
             ss_addcap(&s, 10);
             check(ss_cap(s) == 20);
+            ss_addcap(&s, 10);
+            check(ss_cap(s) == 30);
             ss_free(&s);
         }
     }
 
-    describe("stack")
+    describe("ss_stack")
     {
         it("should allocate a string on the stack")
         {
@@ -1471,6 +1509,157 @@ spec("simple-string library")
             SS s = ss_empty();
             ss_catuint64(&s, n);
             check(eq(s, buf, len));
+            ss_free(&s);
+        }
+    }
+
+    describe("ss_packBE and ss_unpackBE")
+    {
+        it("should encode and decode chars and bools")
+        {
+            const char v1 = 0xAA;
+            const signed char v2 = 0x55;
+            const unsigned char v3 = 0x99;
+            const bool v4 = true;
+            const bool v5 = false;
+
+            const char result1[] = "\xAA\x55\x99\x01\x00";
+            const size_t result1len = 5;
+
+            char r1;
+            signed char r2;
+            unsigned char r3;
+            bool r4;
+            bool r5;
+
+            size_t written = 0;
+            size_t readden = 0;
+
+            SS s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+
+            written = ss_packBE(&s, "cbB??", v1, v2, v3, v4, v5);
+            check(eq(s, result1, result1len));
+            check(written == result1len);
+
+            readden = ss_unpackBE(s, "cbB??", &r1, &r2, &r3, &r4, &r5);
+            check(v1 == r1);
+            check(v2 == r2);
+            check(v3 == r3);
+            check(v4 == r4);
+            check(v5 == r5);
+            check(readden == written);
+
+            ss_free(&s);
+        }
+
+        it("should encode and decode shorts")
+        {
+            const int16_t v1 = 0xFEAB;
+            const uint16_t v2 = 0xBEAF;
+
+            const char result1[] = "\xFE\xAB\xBE\xAF";
+            const size_t result1len = 4;
+
+            int16_t r1;
+            uint16_t r2;
+
+            size_t written = 0;
+            size_t readden = 0;
+
+            SS s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+
+            written = ss_packBE(&s, "hH", v1, v2);
+            check(eq(s, result1, result1len));
+            check(written == result1len);
+
+            readden = ss_unpackBE(s, "hH", &r1, &r2);
+            check(v1 == r1);
+            check(v2 == r2);
+            check(readden == written);
+
+            ss_free(&s);
+        }
+
+        it("should encode and decode 32 bit integrals")
+        {
+            const int32_t v1 = 0xDEADBEAF;
+            const uint32_t v2 = 0xBEAFDEAD;
+
+            const char result1[] = "\xDE\xAD\xBE\xAF\xBE\xAF\xDE\xAD";
+            const size_t result1len = 8;
+
+            int32_t r1;
+            uint32_t r2;
+
+            size_t written = 0;
+            size_t readden = 0;
+
+            SS s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+
+            written = ss_packBE(&s, "iI", v1, v2);
+            check(eq(s, result1, result1len));
+            check(written == result1len);
+
+            readden = ss_unpackBE(s, "iI", &r1, &r2);
+            check(v1 == r1);
+            check(v2 == r2);
+            check(readden == written);
+
+            ss_free(&s);
+        }
+
+        it("should encode and decode int64_t")
+        {
+            const int64_t v1 = 0xDEADBEAFDEADBEAF;
+
+            const char result1[] = "\xDE\xAD\xBE\xAF\xDE\xAD\xBE\xAF";
+            const size_t result1len = 8;
+
+            int64_t r1;
+
+            size_t written = 0;
+            size_t readden = 0;
+
+            SS s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+
+            written = ss_packBE(&s, "q", v1);
+            check(eq(s, result1, result1len));
+            check(written == result1len);
+
+            readden = ss_unpackBE(s, "q", &r1);
+            check(v1 == r1);
+            check(readden == written);
+
+            ss_free(&s);
+        }
+
+        it("should encode and decode uint64_t")
+        {
+            const uint64_t v1 = 0xDEADBEAFDEADBEAF;
+
+            const char result1[] = "\xDE\xAD\xBE\xAF\xDE\xAD\xBE\xAF";
+            const size_t result1len = 8;
+
+            uint64_t r1;
+
+            size_t written = 0;
+            size_t readden = 0;
+
+            SS s = ss_empty();
+            ss_setgrow(&s, SS_GROW50);
+
+            written = ss_packBE(&s, "Q", v1);
+            check(eq(s, result1, result1len));
+            check(written == result1len);
+
+            readden = ss_unpackBE(s, "Q", &r1);
+            check(v1 == r1);
+            check(readden == written);
+
             ss_free(&s);
         }
     }

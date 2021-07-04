@@ -267,6 +267,12 @@ _ss_realloc(_sstring_t *m, size_t cap)
     return m2;
 }
 
+INLINE static int
+_ss_getgrow(uint32_t type)
+{
+    return (int)(type >> _SS_GROW_SHIFT);
+}
+
 /**
  * @internal
  * @brief Adjust capactiy of the string applying growth values.
@@ -278,7 +284,7 @@ _ss_realloc_grow(_sstring_t *m, size_t cap)
     {
         size_t growcap = 0;
 
-        switch (m->type >> _SS_GROW_SHIFT)
+        switch (_ss_getgrow(m->type))
         {
             case SS_GROW25:
                 growcap = cap/4;
@@ -422,6 +428,26 @@ ss_free(SS *s)
         ss_rawfree(_ss_meta(*s));
     }
     (*s) = NULL;
+}
+
+/**
+ * @brief Exposed method for internal
+ * @warning Users should not use this function.
+ * @param b - The buffer to initialize and turn into a stack string.
+ * @return Initialized stack string.
+ */
+SS
+ss_stack_init(void *b, size_t cap)
+{
+    _sstring_t *m = (_sstring_t *)b;
+    m->cap = cap;
+    m->len = 0;
+    m->type = _SSTRING_STACK;
+
+    SS s = _ss_string(m);
+    s[0] = 0;
+
+    return s;
 }
 
 /**
@@ -700,6 +726,568 @@ ss_count(const SS s, size_t index, const char *cs, size_t len)
     return count;
 }
 
+
+
+/** @brief Pack 16-bit uint. */
+#define packu16(BUF, I) (packi16((BUF), (I)))
+/** @brief Pack 16-bit int. */
+static void
+packi16(unsigned char *buf, unsigned int i)
+{
+    *buf++ = i >> 8;
+    *buf = i;
+}
+
+/** @brief Pack 32-bit uint. */
+#define packu32(BUF, I) (packi32((BUF), (I)))
+/** @brief Pack 32-bit int. */
+static void
+packi32(unsigned char *buf, uint32_t i)
+{
+    *buf++ = i >> 24;
+    *buf++ = i >> 16;
+    *buf++ = i >> 8;
+    *buf = i;
+}
+
+/** @brief Pack 64-bit uint. */
+#define packu64(BUF, I) (packi64((BUF), (I)))
+/** @brief Pack 64-bit int. */
+static void
+packi64(unsigned char *buf, uint64_t i)
+{
+    *buf++ = i >> 56;
+    *buf++ = i >> 48;
+    *buf++ = i >> 40;
+    *buf++ = i >> 32;
+    *buf++ = i >> 24;
+    *buf++ = i >> 16;
+    *buf++ = i >> 8;
+    *buf = i;
+}
+
+/** @return Unpack signed 16-bit int. */
+static int16_t
+unpacki16(const unsigned char *buf)
+{
+    unsigned int i2 = ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
+    int i;
+
+    /* Restore sign. */
+    if (i2 <= 0x7fffu)
+    {
+        i = i2;
+    }
+    else
+    {
+        i = -1 - (unsigned int)(0xffffu - i2);
+    }
+
+    return (int16_t)i;
+}
+
+/** @return Unpack signed 16-bit uint. */
+static uint16_t
+unpacku16(const unsigned char *buf)
+{
+    return ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
+}
+
+/** @return Unpack signed 32-bit int. */
+static int32_t
+unpacki32(const unsigned char *buf)
+{
+    uint32_t i2 = ((uint32_t)buf[0] << 24) |
+                           ((uint32_t)buf[1] << 16) |
+                           ((uint32_t)buf[2] << 8)  |
+                           (uint32_t)buf[3];
+    int32_t i;
+
+    /* Restore sign. */
+    if (i2 <= 0x7fffffffu)
+    {
+        i = i2;
+    }
+    else
+    {
+        i = -1 - (int32_t)(0xffffffffu - i2);
+    }
+
+    return i;
+}
+
+/** @return Unpack signed 32-bit uint. */
+static uint32_t
+unpacku32(const unsigned char *buf)
+{
+    return ((uint32_t)buf[0] << 24) |
+           ((uint32_t)buf[1] << 16) |
+           ((uint32_t)buf[2] << 8)  |
+           (uint32_t)buf[3];
+}
+
+/** @return Unpack signed 64-bit int. */
+static int64_t
+unpacki64(const unsigned char *buf)
+{
+    uint64_t i2 = ((uint64_t)buf[0] << 56) |
+                                ((uint64_t)buf[1] << 48) |
+                                ((uint64_t)buf[2] << 40) |
+                                ((uint64_t)buf[3] << 32) |
+                                ((uint64_t)buf[4] << 24) |
+                                ((uint64_t)buf[5] << 16) |
+                                ((uint64_t)buf[6] << 8)  |
+                                buf[7];
+    int64_t i;
+
+    /* Restore sign. */
+    if (i2 <= 0x7fffffffffffffffu)
+    {
+        i = i2;
+    }
+    else
+    {
+        i = -1 -(int64_t)(0xffffffffffffffffu - i2);
+    }
+
+    return i;
+}
+
+/** @return Unpack signed 64-bit uint. */
+static uint64_t
+unpacku64(const unsigned char *buf)
+{
+    return ((uint64_t)buf[0] << 56) |
+           ((uint64_t)buf[1] << 48) |
+           ((uint64_t)buf[2] << 40) |
+           ((uint64_t)buf[3] << 32) |
+           ((uint64_t)buf[4] << 24) |
+           ((uint64_t)buf[5] << 16) |
+           ((uint64_t)buf[6] << 8)  |
+           (uint64_t)buf[7];
+}
+
+/**
+ * @internal
+ * @see https://wiki.sei.cmu.edu/confluence/display/c/MSC39-C.+Do+not+call+va_arg()+on+a+va_list+that+has+an+indeterminate+value
+ * @see https://stackoverflow.com/questions/7084857/what-are-the-automatic-type-promotions-of-variadic-function-arguments
+ * @see https://stackoverflow.com/questions/63849830/default-argument-promotion-in-a-variadic-function
+ * @return Number of bytes written; NPOS on error.
+ */
+static size_t
+_ss_packBE(size_t *caplen, unsigned char *buf, const char *fmt, va_list *argp)
+{
+    va_list ap;
+    va_copy(ap, *argp);
+
+    /* char, short, int */
+    unsigned int h;
+    uint32_t i;
+    uint64_t q;
+
+    size_t len = 0;
+    size_t blen = *caplen;
+    *caplen = 0;
+
+    for (; fmt[0]; ++fmt)
+    {
+        switch (fmt[0])
+        {
+            case 'c':
+            case 'b':
+            case 'B':
+                ++len;
+                if (len > blen)
+                {
+                    *caplen = 1;
+                    len = NPOS;
+                    goto _pack_end;
+                }
+                h = va_arg(ap, unsigned int);
+                *buf = (unsigned char)h;
+                ++buf;
+                break;
+            case '?':
+                ++len;
+                if (len > blen)
+                {
+                    *caplen = 1;
+                    len = NPOS;
+                    goto _pack_end;
+                }
+                h = va_arg(ap, unsigned int);
+                *buf = (h) ? 1 : 0;
+                ++buf;
+                break;
+            case 'h':
+            case 'H':
+                len += 2;
+                if (len > blen)
+                {
+                    *caplen = len - blen;
+                    len = NPOS;
+                    goto _pack_end;
+                }
+                h = va_arg(ap, unsigned int);
+                packi16(buf, h);
+                buf += 2;
+                break;
+            case 'i':
+            case 'I':
+                len += 4;
+                if (len > blen)
+                {
+                    *caplen = len - blen;
+                    len = NPOS;
+                    goto _pack_end;
+                }
+                i = va_arg(ap, uint32_t);
+                packi32(buf, i);
+                buf += 4;
+                break;
+            case 'q':
+            case 'Q':
+                len += 8;
+                if (len > blen)
+                {
+                    *caplen = len - blen;
+                    len = NPOS;
+                    goto _pack_end;
+                }
+                q = va_arg(ap, uint64_t);
+                packi64(buf, q);
+                buf += 8;
+                break;
+            default:
+                len = NPOS;
+                goto _pack_end;
+                break;
+        }
+    }
+
+    _pack_end:
+    va_end(ap);
+
+    return len;
+}
+
+/**
+ * @brief Packs/serializes to a buffer using a Python inspired pack format.
+ * @see https://docs.python.org/3/library/struct.html
+ * @warning Floats are excluded and there are requirements for byte sequences.
+ * @warning Allocate enough space or set a growth flag; otherwise this may be a slow method to execute.
+ * @param s
+ * @param fmt - The packing format string.
+ * @return Number of bytes written; NPOS on error.
+ *
+ * #### Format Specification
+ * Note that you need to provide pointers to all of the following.
+ * c - char
+ * b - signed char
+ * B - unsigned char
+ * ? - bool
+ * h - int16_t
+ * H - uint16_t
+ * i - int32_t
+ * I - uint32_t
+ * q - int64_t
+ * Q - uint64_t
+ */
+size_t
+ss_packBE(SS *s, const char *fmt, ...)
+{
+    va_list argp;
+
+    ss_clear(*s);
+
+    _sstring_t *m = _ss_meta(*s);
+
+    size_t cap = 0;
+    size_t written = 0;
+
+    do
+    {
+        if (cap)
+        {
+            m = _ss_realloc_grow(m, m->cap + cap);
+        }
+        cap = m->cap;
+
+        va_start(argp, fmt);
+        written = _ss_packBE(&cap, (unsigned char *)(_ss_string(m)), fmt, &argp);
+        va_end(argp);
+    } while (NPOS == written && cap);
+
+    if (LIKELY(NPOS != written))
+    {
+        m->len = written;
+    }
+    else
+    {
+        m->len = 0;
+    }
+    *s = _ss_string(m);
+    (*s)[m->len] = 0;
+
+    return written;
+}
+
+/**
+ * @brief Packs/serializes to a buffer.
+ * @warning Allocate enough space or set a growth flag; otherwise this may be a slow method to execute.
+ * @param s
+ * @param fmt - The packing format string.
+ * @return Number of bytes written; NPOS on error.
+ */
+size_t
+ss_catpackBE(SS *s, const char *fmt, ...)
+{
+    va_list argp;
+
+    _sstring_t *m = _ss_meta(*s);
+
+    size_t cap = 0;
+    size_t olen = m->len;
+    size_t written = 0;
+
+    do
+    {
+        if (cap)
+        {
+            m = _ss_realloc_grow(m, m->cap + cap);
+        }
+        cap = m->cap - olen;
+
+        va_start(argp, fmt);
+        written = _ss_packBE(&cap, &((unsigned char *)(_ss_string(m)))[olen], fmt, &argp);
+        va_end(argp);
+    } while (NPOS == written && cap);
+
+    if (NPOS != written)
+    {
+        m->len = olen + written;
+    }
+    *s = _ss_string(m);
+    (*s)[m->len] = 0;
+
+    return written;
+}
+
+
+
+/**
+ * @return Number of bytes processed; NPOS on error.
+ */
+static size_t
+_ss_unpackBE(size_t blen, const unsigned char *buf, const char *fmt, va_list *argp)
+{
+	va_list ap;
+    va_copy(ap, *argp);
+
+    /* 8-bit */
+    char *c;
+	signed char *b;
+	unsigned char *B;
+
+    /* bool */
+    bool *qmark;
+
+    /* 16-bit */
+	int16_t *h;
+	uint16_t *H;
+
+    /* 32-bit */
+	int32_t *i;
+	uint32_t *I;
+
+    /* 64-bit */
+	int64_t *q;
+	uint64_t *Q;
+
+	size_t len = 0;
+
+	for(; fmt[0]; fmt++)
+    {
+		switch (fmt[0])
+        {
+            case 'c':
+                len++;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                c = va_arg(ap, char *);
+                *c = *((char *)buf);
+                buf++;
+                break;
+            case 'b':
+                len++;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                b = va_arg(ap, signed char *);
+                *b = *((signed char *)buf);
+                buf++;
+                break;
+            case 'B':
+                len++;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                B = va_arg(ap, unsigned char *);
+                *B = *buf;
+                buf++;
+                break;
+            case '?':
+                len++;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                qmark = va_arg(ap, bool *);
+                *qmark = (*buf) ? true : false;
+                buf++;
+                break;
+            case 'h':
+                len += 2;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                h = va_arg(ap, int16_t *);
+                *h = unpacki16(buf);
+                buf += 2;
+                break;
+            case 'H':
+                len += 2;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                H = va_arg(ap, uint16_t *);
+                *H = unpacku16(buf);
+                buf += 2;
+                break;
+            case 'i':
+                len += 4;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                i = va_arg(ap, int32_t *);
+                *i = unpacki32(buf);
+                buf += 4;
+                break;
+            case 'I':
+                len += 4;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                I = va_arg(ap, uint32_t *);
+                *I = unpacku32(buf);
+                buf += 4;
+                break;
+            case 'q':
+                len += 8;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                q = va_arg(ap, int64_t *);
+                *q = unpacki64(buf);
+                buf += 8;
+                break;
+            case 'Q':
+                len += 8;
+                if (len > blen)
+                {
+                    len = NPOS;
+                    goto _unpack_end;
+                }
+                Q = va_arg(ap, uint64_t *);
+                *Q = unpacku64(buf);
+                buf += 8;
+                break;
+            default:
+                len = NPOS;
+                goto _unpack_end;
+                break;
+		}
+	}
+
+    _unpack_end:
+	va_end(ap);
+
+    return len;
+}
+
+/**
+ * @brief Unpacks/deserializes a buffer. See ss_packBE documentation for more details.
+ * @note The incoming bytes must be Big-Endian (network byte order).
+ * @param s
+ * @param fmt - The unpacking format string.
+ * @return Number of bytes processed; NPOS on error.
+ */
+size_t
+ss_unpackBE(const SS s, const char *fmt, ...)
+{
+    _sstring_t *m = _ss_meta(s);
+    va_list argp;
+    size_t n;
+
+    if (!ss_isempty(s))
+    {
+        va_start(argp, fmt);
+        n = _ss_unpackBE(ss_len(s), s, fmt, &argp);
+        va_end(argp);
+
+        return n;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+/**
+ * @brief Unpacks/deserializes a buffer. See ss_packBE documentation for more details.
+ * @param blen - The length of the input buffer.
+ * @param buf - The non-NULL buffer reference.
+ * @param fmt - The unpacking format string.
+ * @return Number of bytes processed; NPOS on error.
+ */
+size_t
+ssb_unpackBE(size_t blen, unsigned char *buf, const char *fmt, ...)
+{
+    va_list argp;
+    size_t n;
+
+    if (blen)
+    {
+        va_start(argp, fmt);
+        n = _ss_unpackBE(blen, buf, fmt, &argp);
+        va_end(argp);
+
+        return n;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 /**
  * @brief Safely set the length of the string. Cannot exceed capacity.
  * @param s
@@ -745,6 +1333,8 @@ ssc_setlen(SS s)
 
 /**
  * @brief Set the growth rate option in the string's metadata.
+ * @note It might seem odd to pass string by reference.
+ *       This is done because of how empty string is implemented.
  * @param s
  * @param opt - The chosen growth rate.
  */
@@ -825,7 +1415,6 @@ ss_reserve(SS *s, size_t res)
     if (m->cap < res)
     {
         m = _ss_realloc(m, res);
-
         *s = _ss_string(m);
     }
 }
@@ -898,17 +1487,18 @@ void
 ss_addcap(SS *s, size_t add)
 {
     _sstring_t *m = _ss_meta(*s);
-
     
-    size_t newcap = m->cap + add;
-    if (newcap < m->cap)
+    if (LIKELY(add))
     {
-        newcap = _ss_cap_max();
+        size_t newcap = m->cap + add;
+        if (newcap < m->cap)
+        {
+            newcap = _ss_cap_max();
+        }
+
+        m = _ss_realloc(m, newcap);
+        *s = _ss_string(m);
     }
-
-    m = _ss_realloc(m, newcap);
-
-    *s = _ss_string(m);
 }
 
 /**
@@ -1076,6 +1666,44 @@ ss_trunc(SS s, size_t index)
 }
 
 /**
+ * @internal
+ * @brief Internal trim method.
+ * @param rstart - VALID start index.
+ * @param rend - VALID end index.
+ */
+INLINE static void
+_ss_trim(SS s, size_t rstart, size_t rend, const char *cs, size_t len)
+{
+    _sstring_t *m = _ss_meta(s);
+    size_t start = rstart;
+    size_t end = rend;
+
+    while (start < end && ss_memchar(cs, s[start], len))
+    {
+        ++start;
+    }
+    while (start < end && ss_memchar(cs, s[end -1], len))
+    {
+        --end;
+    }
+
+    size_t rmovelen = end - start;
+
+    if (start != rstart && rmovelen)
+    {
+        ss_memmove(s + rstart, s + start, rmovelen);
+    }
+
+    if (start != rstart || end != rend)
+    {
+        size_t movelen = (m->len - rend) + 1;
+        ss_memmove(s + rstart + rmovelen, s + rend, movelen);
+    }
+
+    m->len -= (rend - rstart) - rmovelen;
+}
+
+/**
  * @brief Trim the characters from the beginning and end of the string.
  * @param s
  * @param cs - The substring listing the characters to trim.
@@ -1086,33 +1714,7 @@ ss_trim(SS s, const char *cs, size_t len)
 {
     if (len)
     {
-        _sstring_t *m = _ss_meta(s);
-
-        size_t start = 0;
-        size_t end = m->len;
-
-        while (start < end && ss_memchar(cs, s[start], len))
-        {
-            ++start;
-        }
-        while (start < end && ss_memchar(cs, s[end - 1], len))
-        {
-            --end;
-        }
-
-        if (start != end)
-        {
-            m->len = end - start;
-            if (start)
-            {
-                ss_memmove(s, s + start, m->len + 1);
-            }
-        }
-        else
-        {
-            m->len = 0;
-        }
-        s[m->len] = 0;
+        _ss_trim(s, 0, ss_len(s), cs, len);
     }
 }
 
@@ -1136,42 +1738,12 @@ ss_trimrange(SS s, size_t rstart, size_t rend, const char *cs, size_t len)
             rend = m->len;
         }
 
-        if (rstart > rend)
-        {
-            rstart = rend;
-        }
-
-        if (rstart == rend)
+        if (rstart >= rend)
         {
             return;
         }
 
-        size_t start = rstart;
-        size_t end = rend;
-
-        while (start < end && ss_memchar(cs, s[start], len))
-        {
-            ++start;
-        }
-        while (start < end && ss_memchar(cs, s[end -1], len))
-        {
-            --end;
-        }
-
-        size_t rmovelen = end - start;
-
-        if (start != rstart && rmovelen)
-        {
-            ss_memmove(s + rstart, s + start, rmovelen);
-        }
-
-        if (start != rstart || end != rend)
-        {
-            size_t movelen = (m->len - rend) + 1;
-            ss_memmove(s + rstart + rmovelen, s + rend, movelen);
-        }
-
-        m->len -= (rend - rstart) - rmovelen;
+        _ss_trim(s, rstart, rend, cs, len);
     }
 }
 
@@ -1180,6 +1752,7 @@ ss_trimrange(SS s, size_t rstart, size_t rend, const char *cs, size_t len)
  * @note This is done because strchr is likely highly optimized.
  * @param s
  * @param cs - The substring of characters to trim.
+ *             Using NULL will default to trimming US-ASCII whitespace.
  */
 void
 ssc_trim(SS s, const char *cs)
@@ -1263,7 +1836,7 @@ ssc_lower(SS s)
 INLINE static unsigned char
 _ss_tohexval(unsigned char c)
 {
-    static unsigned char map[] =
+    static const unsigned char map[] =
     {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1290,6 +1863,7 @@ _ss_tohexval(unsigned char c)
 }
 
 /**
+ * @internal
  * @param n - The uint32_t to count bits of.
  * @return Number of bits set.
  */
@@ -1302,8 +1876,8 @@ _ss_pop32(uint32_t n)
 }
 
 /*
- * Note that we don't use GCC clz impl
- * because the result when n = 0 is undefined.
+ * @internal
+ * @warning DO NOT use GCC clz impl because the result when n = 0 is undefined.
  */
 INLINE static int
 _ss_clz32_impl(uint32_t n)
@@ -1321,6 +1895,7 @@ _ss_clz32_impl(uint32_t n)
 }
 
 /**
+ * @internal
  * @note Uses de Bruijn algorithm for minimal perfect hashing.
  * @see https://en.wikipedia.org/wiki/Find_first_set
  * @return Return most significant bit index or zero if none.
@@ -1349,7 +1924,8 @@ _ss_msb32_impl(uint32_t c)
 }
 
 /**
- * Find the number of bytes to encode the number of bits.
+ * @internal
+ * @brief Find the number of bytes to encode the number of bits.
  * 
  * Bytes   bits (diff)
  * 1  0- 7 bits
@@ -1362,6 +1938,8 @@ _ss_msb32_impl(uint32_t c)
  *
  * Add three to the number of bits to align to fives.
  * Divide by 5 to get the number of bytes to encode.
+ *
+ * @param c - Valid Unicode code point.
  */
 INLINE static int
 _ss_utf8len(unicode_t c)
@@ -2005,8 +2583,66 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
 }
 
 /**
+ * @internal
+ */
+int
+_ss_catf(SS *s, const char *fmt, va_list *argp)
+{
+    va_list ap;
+    _sstring_t *m = _ss_meta(*s);
+
+    if (m->cap == 0)
+    {
+        m = _ss_realloc_grow(m, ss_cstrlen(fmt) + 1);
+        *s = _ss_string(m);
+    }
+
+    for (;;)
+    {
+        va_copy(ap, *argp);
+        int n = ss_vsnprintf(*s + m->len, m->cap - m->len + 1, fmt, ap);
+        va_end(ap);
+
+        if (n < 0)
+        {
+            /*
+             * In pre glibc v2.1 libraries,
+             * -1 indicates not all bytes were written.
+             * @see https://linux.die.net/man/3/vsnprintf
+             */
+#ifdef __GNU_LIBRARY__
+#if (__GLIBC__ < 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ == 0)
+            if (-1 != n)
+            {
+#endif
+#endif
+            (*s)[m->len] = 0;
+            return EINVAL;
+#ifdef __GNU_LIBRARY__
+#if (__GLIBC__ < 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ == 0)
+            }
+#endif
+#endif
+        }
+
+        /* n could be -1, but this should be converted to largest value. */
+        if ((size_t)n < (m->cap - m->len))
+        {
+            m->len += (size_t)n;
+            break;
+        }
+
+        m = _ss_realloc_grow(m, m->cap + 1);
+        *s = _ss_string(m);
+    }
+
+    return 0;
+}
+
+/**
  * @brief A very useful function to write information to the string using a
  *        format string.
+ * @warning The contents of the buffer are not guaranteed if EINVAL returned.
  * @note If using GCC you should get warnings for bad format strings.
  * @param s
  * @param fmt - Format string.
@@ -2015,6 +2651,17 @@ ss_overlay(SS *s, size_t index, const char *cs, size_t len)
 int
 ss_copyf(SS *s, const char *fmt, ...)
 {
+    va_list argp;
+    int retval;
+
+    ss_clear(*s);
+
+    va_start(argp, fmt);
+    retval = _ss_catf(s, fmt, &argp);
+    va_end(argp);
+
+    return retval;
+#if 0
     _sstring_t *m = _ss_meta(*s);
     va_list argp;
 
@@ -2064,6 +2711,7 @@ ss_copyf(SS *s, const char *fmt, ...)
     }
 
     return 0;
+#endif
 }
 
 /**
@@ -2077,6 +2725,15 @@ ss_copyf(SS *s, const char *fmt, ...)
 int
 ss_catf(SS *s, const char *fmt, ...)
 {
+    va_list argp;
+    int retval;
+
+    va_start(argp, fmt);
+    retval = _ss_catf(s, fmt, &argp);
+    va_end(argp);
+
+    return retval;
+#if 0
     _sstring_t *m = _ss_meta(*s);
     va_list argp;
 
@@ -2126,6 +2783,7 @@ ss_catf(SS *s, const char *fmt, ...)
     }
 
     return 0;
+#endif
 }
 
 /**

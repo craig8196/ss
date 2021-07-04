@@ -1,4 +1,4 @@
-/*******************************************************************************
+/********************************************************************************
  * Copyright (c) 2019 Craig Jacobson
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -58,7 +58,7 @@ typedef char * SS;
 
 /**
  * @brief Values to specify growth rates.
- * @note If the user wants a more custom groth rate, then use
+ * @note If the user wants a more custom growth rate, then use
  *       the capacity altering functions.
  */
 enum ss_grow_opt
@@ -89,26 +89,27 @@ ss_dup(SS);
 void
 ss_free(SS *);
 
-SS
-ssc_new(size_t, const char *);
-SS
-ssc_dup(const char *);
-
 #define SS_HEADER_SIZE ((sizeof(size_t)*2) + (sizeof(uint32_t)))
 
+/**
+ * @brief Internal use only.
+ * @note Should not showup in generated documentation.
+ */
+SS
+ss_stack_init(void *, size_t);
+
+/// @endcond
+
+/**
+ * @brief Create a string on the stack.
+ * @param NAME - The name of the string variable.
+ * @param CAP - The capacity, must be constant value.
+ */
 #define ss_stack(NAME, CAP) \
     char _ ## NAME ## _internal_buf[SS_HEADER_SIZE + (CAP) + 1]; \
-    SS NAME = (SS)(&_ ## NAME ## _internal_buf[SS_HEADER_SIZE]); \
-    { \
-        size_t *m = (size_t *)_ ## NAME ## _internal_buf; \
-        *m = (CAP); \
-        ++m; \
-        *m = 0; \
-        ++m; \
-        *((uint32_t *)m) = 1; \
-        NAME[0] = 0; \
-    }
+    SS NAME = ss_stack_init(_ ## NAME ## _internal_buf, (CAP));
 
+/// @cond DOXYGEN_IGNORE
 
 /* Queries */
 size_t
@@ -122,9 +123,9 @@ ss_isempty(const SS);
 bool
 ss_isemptytype(const SS);
 bool
-ss_isheaptype(const SS);
-bool
 ss_isstacktype(const SS);
+bool
+ss_isheaptype(const SS);
 bool
 ss_equal(const SS, const SS);
 int
@@ -135,6 +136,10 @@ size_t
 ss_rfind(const SS, size_t, const char *, size_t);
 size_t
 ss_count(const SS, size_t, const char *, size_t);
+size_t
+ss_unpackBE(const SS, const char *, ...);
+size_t
+ssb_unpackBE(size_t blen, unsigned char *buf, const char *fmt, ...);
 
 /* Adjust Length */
 void
@@ -216,6 +221,10 @@ void
 ss_catint64(SS *, int64_t);
 void
 ss_catuint64(SS *, uint64_t);
+size_t
+ss_packBE(SS *, const char *, ...);
+size_t
+ss_catpackBE(SS *, const char *, ...);
 
 void
 ssc_esc(SS *);
