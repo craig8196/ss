@@ -184,6 +184,3 @@ Some architectures require pointer adresses to be sizeof(pointer) aligned.
 So test for any other architecture.
 
 
-## TODO
-- Re-review interface. Simplify where possible.
-
