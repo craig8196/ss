@@ -184,3 +184,9 @@ Some architectures require pointer adresses to be sizeof(pointer) aligned.
 So test for any other architecture.
 
 
+## TODO
+- Re-run code-coverage
+- Fix code-coverage holes
+
+
+
