@@ -187,6 +187,7 @@ So test for any other architecture.
 ## TODO
 - Re-run code-coverage
 - Fix code-coverage holes
+- Fix ss.pc.in, the requires section is wrong
 
 
 
