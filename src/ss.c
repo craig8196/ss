@@ -727,6 +727,11 @@ ss_count(const SS s, size_t index, const char *cs, size_t len)
 }
 
 
+/**
+ * For all of Bee J's code.
+ * @see https://beej.us/guide/bgnet/html/#serialization
+ * @see https://beej.us/guide/bgnet/examples/pack2.c
+ */
 
 /** @brief Pack 16-bit uint. */
 #define packu16(BUF, I) (packi16((BUF), (I)))
