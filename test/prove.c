@@ -1,4 +1,5 @@
 
+#include <limits.h>
 #include <stdbool.h>
 #include <string.h>
 #include "bdd.h"
@@ -253,6 +254,14 @@ spec("simple-string library")
             check(ss_cap(s) == 6);
             ss_free(&s);
         }
+    }
+
+    describe("ss_maxcap")
+    {
+        /* Knowing the maximum buffer size is necessary for some applications. */
+        size_t m = ss_maxcap();
+        check(m > ((size_t)UINT_MAX - 32));
+        check(m < (size_t)UINT_MAX);
     }
 
     describe("ss_find and ss_rfind")
