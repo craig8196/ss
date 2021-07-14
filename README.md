@@ -166,7 +166,7 @@ Run tests with:
 Download git submodules and utilities prior to code coverage or doxygen:
 
         git submodule update --init
-        apt install doxygen graphviz
+        apt install doxygen graphviz lcov
 
 Run code coverage:
 
