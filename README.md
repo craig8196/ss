@@ -174,8 +174,13 @@ Run code coverage:
 
 
 ## Acknowledgements
-Thanks to the author of bdd-for-c for a very light-weight test framework.
-I have a slightly modified version in `test/`.
+Thanks to Dmitriy Kubyshkin,
+the author of [bdd-for-c](https://github.com/grassator/bdd-for-c),
+for a very light-weight test framework.
+I have a slightly modified version in `test/` (original is MIT licensed).
+
+Thanks to Brian "Beej Jorgensen" Hall for the packing and unpacking functions
+he [released into the public domain](https://beej.us/guide/bgnet/html/#legal).
 
 
 ## Compatibility Warning
